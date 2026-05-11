@@ -33,7 +33,7 @@ func TestOptionsDefaults(t *testing.T) {
 		{"ExtraEnv_initialized", options.ExtraEnv == nil, false},
 		{"ExtraEnv_empty", len(options.ExtraEnv), 0},
 		{"ForkSession", options.ForkSession, false},
-		{"SettingSources_initialized", options.SettingSources == nil, false},
+		{"SettingSources_initialized", options.SettingSources == nil, true},
 		{"SettingSources_empty", len(options.SettingSources), 0},
 	}
 

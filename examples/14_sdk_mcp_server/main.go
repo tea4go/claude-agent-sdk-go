@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	claudecode "github.com/severity1/claude-agent-sdk-go"
+	claudecode "github.com/tea4go/claude-agent-sdk-go"
 )
 
 func main() {

@@ -3,11 +3,12 @@ package subprocess
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/parser"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 // handleStdout processes stdout in a separate goroutine
@@ -27,6 +28,8 @@ func (t *Transport) handleStdout() {
 	}
 	buf := make([]byte, scanTokenSize)
 	scanner.Buffer(buf, scanTokenSize)
+
+	parsedAny := false
 
 	for scanner.Scan() {
 		select {
@@ -79,6 +82,7 @@ func (t *Transport) handleStdout() {
 
 			select {
 			case t.msgChan <- msg:
+				parsedAny = true
 			case <-t.ctx.Done():
 				return
 			}
@@ -88,6 +92,21 @@ func (t *Transport) handleStdout() {
 	if err := scanner.Err(); err != nil {
 		select {
 		case t.errChan <- fmt.Errorf("stdout scanner error: %w", err):
+		case <-t.ctx.Done():
+		}
+	}
+
+	if !parsedAny {
+		if stderrText := t.readStderrText(64 * 1024); stderrText != "" {
+			select {
+			case t.errChan <- fmt.Errorf("claude cli produced no stdout messages; stderr:\n%s", stderrText):
+			case <-t.ctx.Done():
+			}
+			return
+		}
+
+		select {
+		case t.errChan <- fmt.Errorf("claude cli produced no output (no stdout messages). Set WithDebugWriter or WithStderrCallback to inspect stderr, and verify claude CLI is installed/authenticated"):
 		case <-t.ctx.Done():
 		}
 	}
@@ -149,6 +168,24 @@ func formatInitError(msg *shared.ResultMessage) string {
 		return *msg.Result
 	}
 	return fmt.Sprintf("initialization failed with subtype: %s", msg.Subtype)
+}
+
+func (t *Transport) readStderrText(limit int64) string {
+	if t.stderr == nil || limit <= 0 {
+		return ""
+	}
+
+	_ = t.stderr.Sync()
+	if _, err := t.stderr.Seek(0, 0); err != nil {
+		return ""
+	}
+
+	data, err := io.ReadAll(io.LimitReader(t.stderr, limit))
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(data))
 }
 
 // setupStderr configures stderr handling based on options.

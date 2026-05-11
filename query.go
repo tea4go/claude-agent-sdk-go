@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/subprocess"
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
+	"github.com/tea4go/claude-agent-sdk-go/internal/subprocess"
 )
 
 // ErrNoMoreMessages indicates the message iterator has no more messages.
@@ -17,6 +17,10 @@ var ErrNoMoreMessages = errors.New("no more messages")
 // This follows the Python SDK pattern but uses dependency injection for transport.
 func Query(ctx context.Context, prompt string, opts ...Option) (MessageIterator, error) {
 	options := NewOptions(opts...)
+
+	if iter, ok := tryRunSkill(ctx, prompt, options, defaultSessionID); ok {
+		return iter, nil
+	}
 
 	// For one-shot queries, create a transport that passes prompt as CLI argument
 	// This matches the Python SDK behavior where prompt is passed via --print flag
@@ -41,6 +45,10 @@ func QueryWithTransport(
 	}
 
 	options := NewOptions(opts...)
+
+	if iter, ok := tryRunSkill(ctx, prompt, options, defaultSessionID); ok {
+		return iter, nil
+	}
 	return queryWithTransportAndOptions(ctx, prompt, transport, options)
 }
 
@@ -99,6 +107,17 @@ func (qi *queryIterator) Next(_ context.Context) (Message, error) {
 	select {
 	case msg, ok := <-qi.msgChan:
 		if !ok {
+			select {
+			case err, ok := <-qi.errChan:
+				if ok && err != nil {
+					qi.mu.Lock()
+					qi.closed = true
+					qi.mu.Unlock()
+					return nil, err
+				}
+			default:
+			}
+
 			qi.mu.Lock()
 			qi.closed = true
 			qi.mu.Unlock()

@@ -12,7 +12,7 @@ Thank you for your interest in contributing to the Claude Agent SDK for Go!
 
 ```bash
 # Clone the repository
-git clone https://github.com/severity1/claude-agent-sdk-go.git
+git clone https://github.com/tea4go/claude-agent-sdk-go.git
 cd claude-agent-sdk-go
 
 # Verify installation
@@ -42,7 +42,7 @@ We use `gocyclo` to track function complexity. The threshold is **15** - functio
 
 ```bash
 # Install gocyclo
-go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+go install github.com/tea4go/claude-agent-sdk-go@latest
 
 # Check complexity
 make cyclo             # Show functions over threshold
@@ -50,6 +50,7 @@ gocyclo -over 15 .     # Direct usage
 ```
 
 **Guidelines:**
+
 - Keep functions under complexity 15
 - Higher complexity is acceptable for: table-driven tests, examples, orchestration code
 - When complexity grows, extract helper methods
@@ -85,6 +86,7 @@ go test -cover ./...       # Coverage report
 Reference `client_test.go` as the gold standard for testing patterns.
 
 **Test File Organization:**
+
 ```go
 // 1. Test functions (primary purpose)
 func TestFeature(t *testing.T) {...}
@@ -97,6 +99,7 @@ func setupTest(t *testing.T) {...}
 ```
 
 **Table-Driven Tests:**
+
 ```go
 tests := []struct {
     name    string
@@ -122,6 +125,7 @@ for _, tt := range tests {
 ```
 
 **Helper Functions:**
+
 ```go
 func setupTestContext(t *testing.T, timeout time.Duration) (context.Context, context.CancelFunc) {
     t.Helper()  // Critical for correct line reporting
@@ -130,6 +134,7 @@ func setupTestContext(t *testing.T, timeout time.Duration) (context.Context, con
 ```
 
 **Thread-Safe Mocks:**
+
 ```go
 type mockTransport struct {
     mu        sync.Mutex
@@ -200,6 +205,7 @@ func BenchmarkProcessLine(b *testing.B) {
 ```
 
 **Key Points:**
+
 - Use `var sink any` at package level to prevent dead code elimination
 - Always call `b.ReportAllocs()` to track memory allocations
 - Call `b.ResetTimer()` after setup code
@@ -220,14 +226,14 @@ Use conventional commit messages:
 
 ### Types
 
-| Type | Description |
-|------|-------------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
-| `test` | Adding or updating tests |
+| Type       | Description                                             |
+| ---------- | ------------------------------------------------------- |
+| `feat`     | New feature                                             |
+| `fix`      | Bug fix                                                 |
+| `docs`     | Documentation only                                      |
+| `test`     | Adding or updating tests                                |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `chore` | Maintenance tasks |
+| `chore`    | Maintenance tasks                                       |
 
 ### Examples
 
@@ -251,6 +257,7 @@ the initial handshake, causing hangs on slow connections.
 ### Issue References
 
 Reference issues in commits:
+
 - `(Issue #N)` - Related to issue
 - `Closes #N` - Closes issue when merged (in PR body)
 
@@ -285,6 +292,7 @@ git push -u origin feature/issue-N-short-description
 ```
 
 Then create a PR on GitHub with:
+
 - Clear title matching commit convention
 - Description of changes
 - Link to related issue
@@ -308,6 +316,7 @@ Then create a PR on GitHub with:
 ### Creating an Issue
 
 Include:
+
 - **Clear title**: Descriptive summary
 - **Description**: What you expected vs. what happened
 - **Reproduction steps**: Minimal example to reproduce
@@ -316,12 +325,12 @@ Include:
 
 ### Issue Labels
 
-| Label | Description |
-|-------|-------------|
-| `bug` | Something isn't working |
-| `enhancement` | New feature request |
-| `docs` | Documentation improvement |
-| `good first issue` | Good for newcomers |
+| Label              | Description               |
+| ------------------ | ------------------------- |
+| `bug`              | Something isn't working   |
+| `enhancement`      | New feature request       |
+| `docs`             | Documentation improvement |
+| `good first issue` | Good for newcomers        |
 
 ## Architecture
 
@@ -329,5 +338,5 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design documentation.
 
 ## Questions?
 
-- Open a [GitHub Issue](https://github.com/severity1/claude-agent-sdk-go/issues)
+- Open a [GitHub Issue](https://github.com/tea4go/claude-agent-sdk-go/issues)
 - Check existing [documentation](docs/)

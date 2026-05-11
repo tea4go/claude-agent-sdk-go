@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/control"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/control"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 // Options contains configuration for Claude Code CLI interactions.
@@ -132,6 +132,21 @@ func WithAllowedTools(tools ...string) Option {
 func WithDisallowedTools(tools ...string) Option {
 	return func(o *Options) {
 		o.DisallowedTools = tools
+	}
+}
+
+func WithSkills(skills map[string]func(context.Context, string) (string, error)) Option {
+	return func(o *Options) {
+		o.Skills = skills
+	}
+}
+
+func WithSkill(name string, handler func(context.Context, string) (string, error)) Option {
+	return func(o *Options) {
+		if o.Skills == nil {
+			o.Skills = map[string]func(context.Context, string) (string, error){}
+		}
+		o.Skills[name] = handler
 	}
 }
 
@@ -309,7 +324,11 @@ func WithForkSession(fork bool) Option {
 // Valid sources are SettingSourceUser, SettingSourceProject, and SettingSourceLocal.
 func WithSettingSources(sources ...SettingSource) Option {
 	return func(o *Options) {
-		o.SettingSources = sources
+		if sources == nil {
+			o.SettingSources = []SettingSource{}
+			return
+		}
+		o.SettingSources = append([]SettingSource{}, sources...)
 	}
 }
 

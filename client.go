@@ -6,8 +6,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/subprocess"
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
+	"github.com/tea4go/claude-agent-sdk-go/internal/subprocess"
 )
 
 const defaultSessionID = "default"
@@ -54,6 +54,9 @@ type ClientImpl struct {
 	msgChan         <-chan Message
 	errChan         <-chan error
 	streamErrChan   chan error // writable; receives errors from QueryStream goroutine
+	injectChan      chan Message
+	mergeCancel     context.CancelFunc
+	mergeDone       chan struct{}
 }
 
 // NewClient creates a new Client with the given options.
@@ -266,6 +269,18 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	// Get message channels
 	c.msgChan, c.errChan = c.transport.ReceiveMessages(ctx)
 	c.streamErrChan = make(chan error, 1)
+	transportMsgChan, transportErrChan := c.transport.ReceiveMessages(ctx)
+
+	c.errChan = transportErrChan
+	c.injectChan = make(chan Message, 100)
+	mergedChan := make(chan Message, 100)
+
+	mergeCtx, cancel := context.WithCancel(context.Background())
+	c.mergeCancel = cancel
+	c.mergeDone = make(chan struct{})
+	go mergeMessageChannels(mergeCtx, mergedChan, transportMsgChan, c.injectChan, c.mergeDone)
+
+	c.msgChan = mergedChan
 
 	c.connected = true
 	return nil
@@ -275,6 +290,15 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 func (c *ClientImpl) Disconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.mergeCancel != nil {
+		c.mergeCancel()
+		c.mergeCancel = nil
+	}
+	if c.injectChan != nil {
+		close(c.injectChan)
+		c.injectChan = nil
+	}
 
 	if c.transport != nil && c.connected {
 		if err := c.transport.Close(); err != nil {
@@ -286,6 +310,7 @@ func (c *ClientImpl) Disconnect() error {
 	c.msgChan = nil
 	c.errChan = nil
 	c.streamErrChan = nil
+	c.mergeDone = nil
 	return nil
 }
 
@@ -340,6 +365,54 @@ func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessio
 		return ctx.Err()
 	}
 
+	c.mu.RLock()
+	injectChan := c.injectChan
+	c.mu.RUnlock()
+
+	name, args, ok := parseSkillCommand(prompt)
+	if ok {
+		if handler, exists := getSkillHandler(c.options, name); exists {
+			go func() {
+				output, err := handler(ctx, args)
+
+				model := "sdk-skill"
+
+				if err != nil {
+					errText := err.Error()
+					enqueueInjectedMessage(ctx, injectChan, &AssistantMessage{
+						Content: []ContentBlock{&TextBlock{Text: errText}},
+						Model:   model,
+					})
+					enqueueInjectedMessage(ctx, injectChan, &ResultMessage{
+						Subtype:       "error",
+						DurationMs:    0,
+						DurationAPIMs: 0,
+						IsError:       true,
+						Errors:        []string{errText},
+						NumTurns:      0,
+						SessionID:     sessionID,
+						Result:        &errText,
+					})
+					return
+				}
+
+				enqueueInjectedMessage(ctx, injectChan, &AssistantMessage{
+					Content: []ContentBlock{&TextBlock{Text: output}},
+					Model:   model,
+				})
+				enqueueInjectedMessage(ctx, injectChan, &ResultMessage{
+					Subtype:       "success",
+					DurationMs:    0,
+					DurationAPIMs: 0,
+					IsError:       false,
+					NumTurns:      0,
+					SessionID:     sessionID,
+				})
+			}()
+			return nil
+		}
+	}
+
 	// Create user message in Python SDK compatible format
 	streamMsg := StreamMessage{
 		Type: "user",
@@ -353,6 +426,56 @@ func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessio
 
 	// Send message via transport (without holding mutex to avoid blocking other operations)
 	return transport.SendMessage(ctx, streamMsg)
+}
+
+func mergeMessageChannels(
+	ctx context.Context,
+	out chan<- Message,
+	transportMsgChan <-chan Message,
+	injectChan <-chan Message,
+	done chan<- struct{},
+) {
+	defer close(done)
+	defer close(out)
+
+	for transportMsgChan != nil || injectChan != nil {
+		select {
+		case msg, ok := <-transportMsgChan:
+			if !ok {
+				transportMsgChan = nil
+				continue
+			}
+			select {
+			case out <- msg:
+			case <-ctx.Done():
+				return
+			}
+		case msg, ok := <-injectChan:
+			if !ok {
+				injectChan = nil
+				continue
+			}
+			select {
+			case out <- msg:
+			case <-ctx.Done():
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func enqueueInjectedMessage(ctx context.Context, ch chan<- Message, msg Message) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- msg:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // QueryStream sends a stream of messages.
@@ -587,6 +710,24 @@ func (ci *clientIterator) Next(ctx context.Context) (Message, error) {
 	select {
 	case msg, ok := <-ci.msgChan:
 		if !ok {
+			select {
+			case err, ok := <-ci.errChan:
+				if ok && err != nil {
+					ci.mu.Lock()
+					ci.closed = true
+					ci.mu.Unlock()
+					return nil, err
+				}
+			case err, ok := <-ci.streamErrChan:
+				if ok && err != nil {
+					ci.mu.Lock()
+					ci.closed = true
+					ci.mu.Unlock()
+					return nil, err
+				}
+			default:
+			}
+
 			ci.mu.Lock()
 			ci.closed = true
 			ci.mu.Unlock()

@@ -6,10 +6,10 @@
 
 <div align="center">
 
-[![CI](https://github.com/severity1/claude-agent-sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/severity1/claude-agent-sdk-go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/severity1/claude-agent-sdk-go.svg)](https://pkg.go.dev/github.com/severity1/claude-agent-sdk-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/severity1/claude-agent-sdk-go)](https://goreportcard.com/report/github.com/severity1/claude-agent-sdk-go)
-[![codecov](https://codecov.io/gh/severity1/claude-agent-sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/severity1/claude-agent-sdk-go)
+[![CI](https://github.com/tea4go/claude-agent-sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/tea4go/claude-agent-sdk-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tea4go/claude-agent-sdk-go.svg)](https://pkg.go.dev/github.com/tea4go/claude-agent-sdk-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tea4go/claude-agent-sdk-go)](https://goreportcard.com/report/github.com/tea4go/claude-agent-sdk-go)
+[![codecov](https://codecov.io/gh/tea4go/claude-agent-sdk-go/branch/main/graph/badge.svg)](https://codecov.io/gh/tea4go/claude-agent-sdk-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
@@ -26,7 +26,7 @@ Unofficial Go SDK for Claude Code CLI integration. Build production-ready applic
 ## Installation
 
 ```bash
-go get github.com/severity1/claude-agent-sdk-go
+go get github.com/tea4go/claude-agent-sdk-go
 ```
 
 **Prerequisites:** Go 1.18+, Node.js, Claude Code (`npm install -g @anthropic-ai/claude-code`)
@@ -57,7 +57,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/tea4go/claude-agent-sdk-go"
 )
 
 func main() {
@@ -133,7 +133,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/tea4go/claude-agent-sdk-go"
 )
 
 func main() {
@@ -204,7 +204,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/tea4go/claude-agent-sdk-go"
 )
 
 func main() {
@@ -379,7 +379,7 @@ Available agent models: `AgentModelSonnet`, `AgentModelOpus`, `AgentModelHaiku`,
 - [Contributing](CONTRIBUTING.md) - Development setup and guidelines
 - [API Reference](docs/reference.md) - Complete SDK reference with all types, functions, and examples
 - [Python SDK Parity](docs/parity.md) - Feature comparison with the Python SDK
-- [pkg.go.dev](https://pkg.go.dev/github.com/severity1/claude-agent-sdk-go) - GoDoc reference
+- [pkg.go.dev](https://pkg.go.dev/github.com/tea4go/claude-agent-sdk-go) - GoDoc reference
 
 ## Advanced Features
 

@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/control"
-	"github.com/severity1/claude-agent-sdk-go/internal/parser"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
+	"github.com/tea4go/claude-agent-sdk-go/internal/control"
+	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 const (
@@ -134,8 +134,7 @@ func (t *Transport) Connect(ctx context.Context) error {
 		// Streaming mode or regular one-shot
 		args = cli.BuildCommand(t.cliPath, opts, t.closeStdin)
 	}
-	//nolint:gosec // G204: This is the core CLI SDK functionality - subprocess execution is required
-	t.cmd = exec.CommandContext(ctx, args[0], args[1:]...)
+	t.cmd = newExecCommandContext(ctx, args)
 
 	// Set up environment and apply to command
 	t.cmd.Env = t.buildEnvironment()

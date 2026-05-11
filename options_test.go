@@ -1698,11 +1698,8 @@ func TestSessionManagementOptions(t *testing.T) {
 	t.Run("nil_by_default", func(t *testing.T) {
 		options := NewOptions()
 		assertOptionsForkSession(t, options, false)
-		if options.SettingSources == nil {
-			t.Error("Expected SettingSources to be initialized, got nil")
-		}
-		if len(options.SettingSources) != 0 {
-			t.Errorf("Expected empty SettingSources, got %v", options.SettingSources)
+		if options.SettingSources != nil {
+			t.Errorf("Expected SettingSources to be nil, got %v", options.SettingSources)
 		}
 	})
 

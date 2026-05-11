@@ -3,17 +3,19 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 <!-- AUTO-MANAGED: project-description -->
+
 ## Overview
 
 **Claude Agent SDK for Go** - Unofficial Go SDK for Claude Code CLI integration. Provides programmatic interaction through `Query()` (one-shot) and `Client` (streaming) APIs with 100% Python SDK parity.
 
-- **Module**: `github.com/severity1/claude-agent-sdk-go`
+- **Module**: `github.com/tea4go/claude-agent-sdk-go`
 - **Package**: `claudecode`
 - **Go Version**: 1.18+
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: build-commands -->
+
 ## Build & Development Commands
 
 ```bash
@@ -49,6 +51,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: architecture -->
+
 ## Architecture
 
 ```
@@ -73,6 +76,7 @@ make ci                           # Run full CI pipeline locally
 ```
 
 **Data Flow**:
+
 1. `Query()`/`Client` -> `Transport` interface -> `subprocess.Transport` -> Claude CLI
 2. CLI stdout -> `parser.Parser` -> `shared.Message` types -> User code
 3. Control protocol: `control.Protocol` <-> CLI (hooks, permissions, MCP)
@@ -82,6 +86,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
+
 ## Code Conventions
 
 - **Idiomatic Go**: Use `gofmt` formatting, standard naming conventions
@@ -96,6 +101,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: patterns -->
+
 ## Detected Patterns
 
 - **Transport interface**: Central abstraction for CLI communication; use `MockTransport` for tests
@@ -123,6 +129,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: git-insights -->
+
 ## Git Insights
 
 - Conventional commit messages: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
@@ -136,6 +143,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: best-practices -->
+
 ## Best Practices
 
 - **TDD approach**: Write failing tests first, implement to make them pass
@@ -149,6 +157,7 @@ make ci                           # Run full CI pipeline locally
 <!-- END AUTO-MANAGED -->
 
 <!-- MANUAL -->
+
 ## Custom Notes
 
 Add project-specific notes here. This section is never auto-modified.

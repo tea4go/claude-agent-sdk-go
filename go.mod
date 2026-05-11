@@ -1,3 +1,3 @@
-module github.com/severity1/claude-agent-sdk-go
+module github.com/tea4go/claude-agent-sdk-go
 
 go 1.18

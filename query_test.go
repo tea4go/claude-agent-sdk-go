@@ -800,6 +800,29 @@ func TestQueryIteratorContextCancellation(t *testing.T) {
 	}
 }
 
+func TestQueryIteratorReturnsErrorWhenMessageChannelClosed(t *testing.T) {
+	ctx, cancel := setupQueryTestContext(t, 5*time.Second)
+	defer cancel()
+
+	transport := newQueryMockTransport(WithQueryAsyncError(fmt.Errorf("transport error")))
+
+	iter, err := QueryWithTransport(ctx, "test query", transport)
+	if err != nil {
+		t.Fatalf("QueryWithTransport failed: %v", err)
+	}
+	defer func() { _ = iter.Close() }()
+
+	time.Sleep(25 * time.Millisecond)
+
+	msg, err := iter.Next(ctx)
+	if err == nil || !strings.Contains(err.Error(), "transport error") {
+		t.Fatalf("expected transport error, got msg=%v err=%v", msg, err)
+	}
+	if msg != nil {
+		t.Fatalf("expected nil message, got %v", msg)
+	}
+}
+
 // Mock Transport Implementation
 type queryMockTransport struct {
 	mu               sync.RWMutex
@@ -810,6 +833,7 @@ type queryMockTransport struct {
 	responseMessages []Message
 	systemMessages   []*SystemMessage
 	resultMessages   []*ResultMessage
+	asyncError       error
 	connectError     error
 	sendError        error
 	delay            time.Duration
@@ -857,6 +881,14 @@ func (q *queryMockTransport) Connect(ctx context.Context) error {
 		for _, msg := range messages {
 			select {
 			case q.msgChan <- msg:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		if q.asyncError != nil {
+			select {
+			case q.errChan <- q.asyncError:
 			case <-ctx.Done():
 				return
 			}
@@ -996,6 +1028,12 @@ func WithQueryConnectError(err error) QueryMockOption {
 func WithQuerySendError(err error) QueryMockOption {
 	return func(q *queryMockTransport) {
 		q.sendError = err
+	}
+}
+
+func WithQueryAsyncError(err error) QueryMockOption {
+	return func(q *queryMockTransport) {
+		q.asyncError = err
 	}
 }
 

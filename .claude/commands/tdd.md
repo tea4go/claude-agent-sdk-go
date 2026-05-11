@@ -175,7 +175,7 @@ Generate branch name from issue (e.g., Issue #34 "Add plugins support" becomes `
    golangci-lint run
    gocyclo -over 15 .
    deadcode -test=true \
-     -filter='github.com/severity1/claude-agent-sdk-go/internal/...' \
+     -filter='github.com/tea4go/claude-agent-sdk-go/internal/...' \
      ./examples/... ./internal/...
    # Or one-shot: make check
    ```

@@ -130,7 +130,7 @@ import (
     "log"
     "time"
     
-    "github.com/severity1/claude-agent-sdk-go"
+    "github.com/tea4go/claude-agent-sdk-go"
 )
 
 func main() {

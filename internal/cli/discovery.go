@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 const windowsOS = "windows"
@@ -246,17 +246,17 @@ func addSessionFlags(cmd []string, options *shared.Options) []string {
 	if options.ForkSession {
 		cmd = append(cmd, "--fork-session")
 	}
-	// Always pass --setting-sources (Python SDK parity)
-	// Empty slice results in empty string value
-	sourcesValue := ""
-	if len(options.SettingSources) > 0 {
-		strs := make([]string, len(options.SettingSources))
-		for i, s := range options.SettingSources {
-			strs[i] = string(s)
+	if options.SettingSources != nil {
+		sourcesValue := ""
+		if len(options.SettingSources) > 0 {
+			strs := make([]string, len(options.SettingSources))
+			for i, s := range options.SettingSources {
+				strs[i] = string(s)
+			}
+			sourcesValue = strings.Join(strs, ",")
 		}
-		sourcesValue = strings.Join(strs, ",")
+		cmd = append(cmd, "--setting-sources", sourcesValue)
 	}
-	cmd = append(cmd, "--setting-sources", sourcesValue)
 	if options.IncludePartialMessages {
 		cmd = append(cmd, "--include-partial-messages")
 	}

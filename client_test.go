@@ -2196,6 +2196,35 @@ func TestClientIteratorNextErrorPaths(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "message_channel_closed_with_pending_error",
+			setup: func(t *testing.T) (*clientIterator, context.Context, context.CancelFunc) {
+				t.Helper()
+				msgChan := make(chan Message)
+				errChan := make(chan error, 1)
+				iter := &clientIterator{
+					msgChan: msgChan,
+					errChan: errChan,
+					closed:  false,
+				}
+
+				errChan <- fmt.Errorf("transport error")
+				close(errChan)
+				close(msgChan)
+
+				ctx, cancel := setupClientTestContext(t, 5*time.Second)
+				return iter, ctx, cancel
+			},
+			validate: func(t *testing.T, msg Message, err error) {
+				t.Helper()
+				if err == nil || err.Error() != "transport error" {
+					t.Errorf("Expected 'transport error', got: %v", err)
+				}
+				if msg != nil {
+					t.Errorf("Expected nil message on error, got: %v", msg)
+				}
+			},
+		},
 	}
 
 	for _, test := range tests {

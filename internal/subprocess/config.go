@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
-	"github.com/severity1/claude-agent-sdk-go/internal/control"
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
+	"github.com/tea4go/claude-agent-sdk-go/internal/control"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 // generateMcpConfigFile creates a temporary MCP config file from options.McpServers.

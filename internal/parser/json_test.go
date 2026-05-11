@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 // Test constants to avoid goconst warnings
