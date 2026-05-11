@@ -1,6 +1,6 @@
 //go:build !windows
 
-package subprocess
+package cli
 
 import (
 	"context"
