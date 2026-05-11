@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
+	"github.com/tea4go/claude-agent-sdk-go/internal/subprocess"
 )
 
 const windowsOS = "windows"
@@ -440,7 +441,7 @@ func CheckCLIVersion(ctx context.Context, cliPath string) (warning string) {
 	defer cancel()
 
 	// Run CLI with -v flag (matches Python SDK)
-	cmd := exec.CommandContext(checkCtx, cliPath, "-v")
+	cmd := subprocess.NewExecCommandContext(checkCtx, []string{cliPath, "-v"})
 	output, err := cmd.Output()
 	if err != nil {
 		return "" // Silently ignore errors (matches Python SDK)

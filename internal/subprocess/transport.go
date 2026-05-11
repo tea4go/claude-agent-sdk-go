@@ -134,7 +134,7 @@ func (t *Transport) Connect(ctx context.Context) error {
 		// Streaming mode or regular one-shot
 		args = cli.BuildCommand(t.cliPath, opts, t.closeStdin)
 	}
-	t.cmd = newExecCommandContext(ctx, args)
+	t.cmd = NewExecCommandContext(ctx, args)
 
 	// Set up environment and apply to command
 	t.cmd.Env = t.buildEnvironment()
