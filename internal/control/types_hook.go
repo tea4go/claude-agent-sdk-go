@@ -17,6 +17,9 @@ const (
 	HookEventPreToolUse HookEvent = "PreToolUse"
 	// HookEventPostToolUse is triggered after a tool is executed.
 	HookEventPostToolUse HookEvent = "PostToolUse"
+	// HookEventPostToolUseFailure is triggered after a tool execution fails.
+	// Distinct from PostToolUse, which fires on success. Added in Python SDK PR #535.
+	HookEventPostToolUseFailure HookEvent = "PostToolUseFailure"
 	// HookEventUserPromptSubmit is triggered when a user submits a prompt.
 	HookEventUserPromptSubmit HookEvent = "UserPromptSubmit"
 	// HookEventStop is triggered when the session is stopping.
@@ -68,6 +71,28 @@ type PostToolUseHookInput struct {
 	ToolInput map[string]any `json:"tool_input"`
 	// ToolResponse contains the tool's output.
 	ToolResponse any `json:"tool_response"`
+}
+
+// PostToolUseFailureHookInput is the input for PostToolUseFailure hook events.
+// Matches Python SDK's PostToolUseFailureHookInput TypedDict (PR #535).
+// _SubagentContextMixin fields (agent_id/agent_type) deferred to Phase 2 item #13
+// (Python PR #628), which is where Python introduces the mixin and applies it to
+// PostToolUseFailureHookInput alongside the other three tool-lifecycle inputs.
+type PostToolUseFailureHookInput struct {
+	BaseHookInput
+	// HookEventName is always "PostToolUseFailure".
+	HookEventName string `json:"hook_event_name"`
+	// ToolName is the name of the tool that failed.
+	ToolName string `json:"tool_name"`
+	// ToolInput contains the tool's input parameters.
+	ToolInput map[string]any `json:"tool_input"`
+	// ToolUseID identifies the failed tool invocation.
+	ToolUseID string `json:"tool_use_id"`
+	// Error describes the failure.
+	Error string `json:"error"`
+	// IsInterrupt is true when the failure was caused by user interrupt.
+	// Optional; nil maps to Python's NotRequired[bool] absent state.
+	IsInterrupt *bool `json:"is_interrupt,omitempty"`
 }
 
 // UserPromptSubmitHookInput is the input for UserPromptSubmit hook events.
@@ -133,6 +158,16 @@ type PreToolUseHookSpecificOutput struct {
 // Matches Python SDK's PostToolUseHookSpecificOutput TypedDict.
 type PostToolUseHookSpecificOutput struct {
 	// HookEventName is always "PostToolUse".
+	HookEventName string `json:"hookEventName"`
+	// AdditionalContext provides extra context for Claude.
+	AdditionalContext *string `json:"additionalContext,omitempty"`
+}
+
+// PostToolUseFailureHookSpecificOutput contains PostToolUseFailure-specific output fields.
+// Matches Python SDK's PostToolUseFailureHookSpecificOutput TypedDict (PR #535).
+// Structurally identical to PostToolUseHookSpecificOutput; only the HookEventName literal differs.
+type PostToolUseFailureHookSpecificOutput struct {
+	// HookEventName is always "PostToolUseFailure".
 	HookEventName string `json:"hookEventName"`
 	// AdditionalContext provides extra context for Claude.
 	AdditionalContext *string `json:"additionalContext,omitempty"`
