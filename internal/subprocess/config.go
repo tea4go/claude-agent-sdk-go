@@ -218,7 +218,7 @@ func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 		}
 	}
 
-	// Wire SDK MCP servers to protocol (Issue #7)
+	// Wire SDK MCP servers to protocol.
 	if t.options != nil && len(t.options.McpServers) > 0 {
 		sdkServers := make(map[string]control.McpServer)
 		for name, config := range t.options.McpServers {

@@ -95,6 +95,27 @@ Spawn a single `grumpy-gopher` agent with a self-contained prompt that includes:
 
    - **Code quality** - KISS/YAGNI/DRY, no dead code, no over-engineering.
 
+   - **Comment hygiene** - source comments describe current Go behavior only. Parity tracking lives in `docs/tracking/`, decisioning history in git log, PR/issue refs in PR descriptions — never in source comments. Flag every instance of:
+     - **XREF**: "Matches Python SDK's X exactly", "Python SDK: types.py:NNN", or any cross-SDK comparison claim on a Go identifier
+     - **HIST**: "Added in Python SDK PR #N", "(PR #N fix)", "(Issue #N)" trailers in source comments
+     - **BANNER**: ASCII separators (`// =====...`, `// -----...`) — they cluster Python-source-coordinate references and rot when the file reorganizes
+     - **T-PREFIX**: `T###:` task-tracker prefixes on test functions or block comments
+     - **FOLLOWING-X**: "following client_test.go patterns" or "following established patterns" XREFs
+     - **TUTORIAL**: tutorial-style prose in non-example production code (acceptable in `examples/` and `doc.go` package overview only)
+     - **INTER-SDK in doc.go**: phrases like "100% feature parity with the Python SDK" in the package overview comment — describe the Go package, not its relationship to other SDKs
+     - **DEAD-REF**: comments naming a function, file, or flag that no longer exists, was renamed, or never landed
+     - **GODOC-FORM**: exported-identifier doc comments that don't start with the identifier name
+     - **GODOC-LONG**: multi-paragraph doc comments on individual identifiers (only the `doc.go` package overview is exempt)
+
+     Sweep commands to run before invoking the agent:
+     ```bash
+     rg -n '^\s*//.*(Matches Python SDK|Python SDK.*exactly|Added in Python SDK PR|following.*patterns)' --type go
+     rg -n '^\s*//\s*={5,}|^\s*//\s*-{5,}' --type go
+     rg -n '^\s*//.*\b(?:PR|Issue) #\d+' --type go
+     rg -n '^\s*//\s*T\d+:' --type go
+     ```
+     Each hit should appear as a finding in the output unless it is load-bearing (documents a non-obvious why, a hidden constraint, or a wire-format detail not visible from the code alone). Be conservative on "load-bearing" — when the same information exists in `docs/tracking/` or in a recent commit message, the comment is redundant.
+
    - **Examples coverage** - for each new public API added by the target PRs: is there an example demonstrating it? Do existing examples still compile and run correctly? Are any examples stale or misleading after the changes? List specific examples that should be added or updated to enable functional live testing.
 
    - **Docs and tracking reconciliation** - implementation often deviates from tracker prose, module CLAUDE.md notes, in-code comments, or auto-memory entries — sometimes because the original spec was imprecise, sometimes because the implementation chose a superior approach (better naming, idiomatic Go pattern, cleaner architecture, broader coverage than Python). When implementation is the source of truth (it was reviewed and merged) but documentation describes something different, **the docs are wrong, not the code**. Compare every implementation detail against:
@@ -132,10 +153,20 @@ Spawn a single `grumpy-gopher` agent with a self-contained prompt that includes:
      UNDERSPECIFIED: [implementation added structure/coverage docs never described - expand doc]
      SUPERIOR:       [implementation deliberately better than Python/spec - doc should note rationale]
 
+   COMMENT HYGIENE:
+     XREF:      [file:line - cross-SDK comparison claim, current text, recommended rewrite]
+     HIST:      [file:line - PR/issue trailer or decisioning history in source]
+     BANNER:    [file:line - ASCII separator block]
+     T-PREFIX:  [file:line - T### task-tracker prefix]
+     FOLLOWING: [file:line - "following X patterns" XREF]
+     TUTORIAL:  [file:line - tutorial prose in production code]
+     DEAD-REF:  [file:line - reference to removed/renamed identifier]
+     GODOC:     [file:line - bad godoc form or overly long doc on identifier]
+
    VERDICT: [ship / do not ship + one sentence why]
    ```
 
-   Each finding must include file:line. For each blocker: what the Python SDK does, what the Go code does, and the exact fix needed (describe the fix - do not apply it). For each `DOCS RECONCILIATION` entry: name both the doc file:line that is wrong AND the implementation file:line that proves it.
+   Each finding must include file:line. For each blocker: what the Python SDK does, what the Go code does, and the exact fix needed (describe the fix - do not apply it). For each `DOCS RECONCILIATION` entry: name both the doc file:line that is wrong AND the implementation file:line that proves it. For each `COMMENT HYGIENE` entry: quote the current comment (≤80 chars) and give the recommended rewrite or "remove" — these are review-time fixes, the same patterns that get caught by the sweep commands in Step 4.
 
 ## Step 5: Present Results
 
@@ -146,6 +177,7 @@ After presenting findings, note:
 - Which tracker items are missing or incomplete
 - Which examples need to be added or updated for functional live testing
 - **Which docs/tracking entries need reconciliation** (tracker rows, CLAUDE.md notes, in-code comments, auto-memory) — distinguish "doc is just imprecise" from "implementation chose a superior approach and docs should record that as a deliberate divergence"
+- **Which comment-hygiene patterns appeared in the new code** — XREF/HIST/BANNER/T-PREFIX/etc. are easy to fix as a small follow-up commit, and they compound across branches if left in. A clean branch has zero hits on the Step 4 sweep commands.
 - Whether the branch is ready to PR or needs more work
 
 **Stop here. Do not apply any fixes.** The user will decide what to address based on the findings.

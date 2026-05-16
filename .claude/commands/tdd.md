@@ -180,7 +180,19 @@ Generate branch name from issue (e.g., Issue #34 "Add plugins support" becomes `
    # Or one-shot: make check
    ```
 2. **Fix any issues found**
-3. **Commit refactoring (if changes made):**
+3. **Sweep for comment anti-patterns** (these almost always sneak into a fresh implementation; strip them now rather than letting a follow-up audit do it later):
+   ```bash
+   # Cross-SDK parity claims and "following X patterns" XREFs
+   rg -n '^\s*//.*(Matches Python SDK|Python SDK.*exactly|Added in Python SDK PR|following.*patterns)' --type go
+   # ASCII banner separators
+   rg -n '^\s*//\s*={5,}|^\s*//\s*-{5,}' --type go
+   # PR/Issue trailers in comments
+   rg -n '^\s*//.*\b(?:PR|Issue) #\d+' --type go
+   # T### task-tracker prefixes
+   rg -n '^\s*//\s*T\d+:' --type go
+   ```
+   Each match should be evaluated and either removed or reworded — see the **Comment & Docstring Checklist** in Phase 5 for the rationale. The implementation is the contract; parity context lives in `docs/tracking/`, decisioning history in git log, and PR refs in the PR description — never in source comments.
+4. **Commit refactoring (if changes made):**
    ```
    refactor: improve <feature> (Issue #$ARGUMENTS)
 
@@ -230,6 +242,27 @@ Before finalizing, review ALL implemented code for:
 - [ ] Proper resource cleanup in all paths
 - [ ] Efficient buffer management
 - [ ] Context cancellation respected
+
+### Comment & Docstring Checklist:
+
+Source comments describe **current Go behavior only**. Parity context, decisioning history, and PR/issue refs are *derived artifacts* — they live in `docs/tracking/`, git commit messages, and the PR description, not inline. Comments that duplicate any of those rot independently and mislead future readers.
+
+- [ ] No "Matches Python SDK X exactly" or similar cross-SDK comparison claims on types, constants, or methods
+- [ ] No "Added in Python SDK PR #N" / "(PR #N fix)" / "Issue #N" trailers on comments
+- [ ] No ASCII banner separators (`// =====...`, `// -----...`) — use plain section comments or no separator
+- [ ] No `T###:` task-tracker prefixes on test functions or block comments
+- [ ] No "following X patterns" XREFs (e.g. "following client_test.go patterns") — established patterns live in CLAUDE.md, not as inline justifications
+- [ ] No inter-SDK comparison in the `doc.go` package overview — describe what the Go package does, not how it relates to Python
+- [ ] No tutorial-style prose in production code (acceptable only in `examples/` and `doc.go` package overview)
+- [ ] No commented-out code; no author/date stamps; no emojis or em-dashes
+- [ ] Default to no comment. Add one only when the *why* is non-obvious: a hidden constraint, subtle invariant, surprising behavior, or wire-format detail that's not visible from the code alone
+- [ ] Doc comments on exported identifiers start with the identifier name (godoc convention: `// FooBar does X`, not `// Does X`)
+- [ ] Doc comments on exported identifiers are concise — one sentence ideally, no multi-paragraph essays (only the `doc.go` package overview is exempt)
+
+When parity context for a field or type is genuinely useful to a maintainer, put it in:
+- The commit message — full PR reference + rationale lives here permanently
+- `docs/tracking/README.md` — the parity tracker row owns the Python-PR-to-Go-PR mapping
+- The PR body — "this implements Python PR #N, …" goes here for reviewers
 
 **If issues found:** Fix them and create an additional commit with description of what was fixed.
 

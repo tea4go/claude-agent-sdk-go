@@ -16,7 +16,6 @@ const (
 )
 
 // Parser handles JSON message parsing with speculative parsing and buffer management.
-// It implements the same speculative parsing strategy as the Python SDK.
 type Parser struct {
 	buffer        strings.Builder
 	maxBufferSize int
@@ -181,7 +180,6 @@ func (p *Parser) parseUserMessage(data map[string]any) (*shared.UserMessage, err
 		parentToolUseID = &ptid
 	}
 
-	// Extract tool_use_result (Issue #98: Python SDK v0.1.22 parity)
 	var toolUseResult map[string]any
 	if tur, ok := data["tool_use_result"].(map[string]any); ok {
 		toolUseResult = tur
@@ -244,8 +242,8 @@ func (p *Parser) parseAssistantMessage(data map[string]any) (*shared.AssistantMe
 		blocks[i] = block
 	}
 
-	// Parse optional error field from top-level data (not nested message object).
-	// The CLI emits {"type":"assistant","error":"rate_limit","message":{...}}.
+	// Parse optional error field from top-level data, not the nested message object.
+	// Wire format: {"type":"assistant","error":"rate_limit","message":{...}}.
 	var errorPtr *shared.AssistantMessageError
 	if errorStr, ok := data["error"].(string); ok {
 		errType := shared.AssistantMessageError(errorStr)
@@ -253,8 +251,7 @@ func (p *Parser) parseAssistantMessage(data map[string]any) (*shared.AssistantMe
 	}
 
 	// parent_tool_use_id is set on assistant messages produced inside a subagent
-	// (Agent/Task tool). Lives at the top-level of the raw event, matching the
-	// Python SDK and the user-message parsing above.
+	// (Agent/Task tool). Lives at the top-level of the raw event.
 	var parentToolUseID *string
 	if ptid, ok := data["parent_tool_use_id"].(string); ok {
 		parentToolUseID = &ptid

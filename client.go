@@ -188,9 +188,8 @@ func (c *ClientImpl) prepareOptions() error {
 		return nil // Nil options are acceptable (use defaults)
 	}
 
-	// Auto-configure PermissionPromptToolName when CanUseTool callback is set
-	// This tells CLI to route permission prompts through stdio (control protocol)
-	// Matches Python SDK behavior: permission_prompt_tool_name="stdio"
+	// Auto-configure PermissionPromptToolName when CanUseTool callback is set.
+	// This tells CLI to route permission prompts through stdio (control protocol).
 	if c.options.CanUseTool != nil && c.options.PermissionPromptToolName == nil {
 		stdio := "stdio"
 		c.options.PermissionPromptToolName = &stdio

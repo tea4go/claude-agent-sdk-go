@@ -16,8 +16,7 @@ type contextKey string
 
 const cancelKey contextKey = "cancel"
 
-// TestQueryBasicExecution tests simple query functionality
-// Python Reference: test_client.py::TestQueryFunction::test_query_single_prompt
+// TestQueryBasicExecution tests simple query functionality.
 func TestQueryBasicExecution(t *testing.T) {
 	ctx, cancel := setupQueryTestContext(t, 10*time.Second)
 	defer cancel()
@@ -41,8 +40,7 @@ func TestQueryBasicExecution(t *testing.T) {
 	assertQueryMessageModel(t, assistantMsg, "claude-opus-4-1-20250805")
 }
 
-// TestQueryWithOptions tests query configuration options
-// Python Reference: test_client.py::TestQueryFunction::test_query_with_options
+// TestQueryWithOptions tests query configuration options.
 func TestQueryWithOptions(t *testing.T) {
 	ctx, cancel := setupQueryTestContext(t, 10*time.Second)
 	defer cancel()

@@ -42,7 +42,7 @@ func TestParseValidMessages(t *testing.T) { //nolint:gocyclo
 			},
 			expectedType: shared.MessageTypeUser,
 		},
-		// Issue #24: UUID and ParentToolUseID field tests
+		// UUID and ParentToolUseID field tests
 		{
 			name: "user_message_with_uuid",
 			data: map[string]any{
@@ -153,8 +153,8 @@ func TestParseValidMessages(t *testing.T) { //nolint:gocyclo
 				}
 			},
 		},
-		// Python PR #506: error field is at the top level of the event, not nested
-		// inside data["message"]. CLI wire format: {"type":"assistant","error":"rate_limit","message":{...}}
+		// error field is at the top level of the event, not nested inside data["message"].
+		// CLI wire format: {"type":"assistant","error":"rate_limit","message":{...}}.
 		{
 			name: "assistant_message_with_rate_limit_error",
 			data: map[string]any{
@@ -386,8 +386,7 @@ func TestParseValidMessages(t *testing.T) { //nolint:gocyclo
 	}
 }
 
-// Issue #98: TestParseUserMessageToolUseResult tests tool_use_result field parsing
-// Python SDK v0.1.22 parity (PR #495)
+// TestParseUserMessageToolUseResult tests tool_use_result field parsing.
 func TestParseUserMessageToolUseResult(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1922,7 +1921,7 @@ func TestStreamEventErrorConditions(t *testing.T) {
 	}
 }
 
-// TestResultMessageErrorsField tests the errors array field on ResultMessage (Issue #110)
+// TestResultMessageErrorsField tests the errors array field on ResultMessage.
 func TestResultMessageErrorsField(t *testing.T) {
 	parser := setupParserTest(t)
 

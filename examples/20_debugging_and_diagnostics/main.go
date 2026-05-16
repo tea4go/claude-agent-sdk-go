@@ -206,9 +206,9 @@ func demonstrateServerDiagnostics() {
 				}
 				switch msg := message.(type) {
 				case *claudecode.AssistantMessage:
-					// HasError checks the top-level error field (PR #506 fix).
-					// This is distinct from ResultMessage.IsError - it signals
-					// a rate limit, billing issue, or server error on the message itself.
+					// HasError checks the top-level error field on the assistant message.
+					// This is distinct from ResultMessage.IsError - it signals a rate limit,
+					// billing issue, or server error on the message itself.
 					if msg.HasError() {
 						errType := msg.GetError()
 						if msg.IsRateLimited() {

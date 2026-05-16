@@ -94,8 +94,8 @@ func (t *Transport) handleStdout() {
 }
 
 // handleStderrCallback processes stderr in a separate goroutine.
-// Matches Python SDK behavior: line-by-line, strips trailing whitespace,
-// skips empty lines, silently ignores all errors.
+// Reads line-by-line, strips trailing whitespace, skips empty lines, and
+// silently ignores scanner errors.
 func (t *Transport) handleStderrCallback() {
 	defer t.wg.Done()
 
