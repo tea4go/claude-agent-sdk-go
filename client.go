@@ -6,7 +6,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/severity1/claude-agent-sdk-go/internal/cli"
 	"github.com/severity1/claude-agent-sdk-go/internal/subprocess"
 )
 
@@ -247,8 +246,8 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	if c.customTransport != nil {
 		c.transport = c.customTransport
 	} else {
-		// Create default subprocess transport directly (like Python SDK)
-		cliPath, err := cli.FindCLI()
+		// Honor WithCLIPath when set, otherwise fall back to auto-discovery.
+		cliPath, err := resolveCLIPath(c.options)
 		if err != nil {
 			return fmt.Errorf("claude CLI not found: %w", err)
 		}
