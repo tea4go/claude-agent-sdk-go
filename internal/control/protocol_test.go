@@ -11,12 +11,7 @@ import (
 	"time"
 )
 
-// Test constants for model names used across dynamic control tests.
 const testModelSonnet = "claude-sonnet-4-5"
-
-// =============================================================================
-// Phase 1: Control Message Type Tests
-// =============================================================================
 
 func TestControlMessageTypes(t *testing.T) {
 	t.Run("message_type_constants", testMessageTypeConstants)
@@ -48,7 +43,6 @@ func testMessageTypeConstants(t *testing.T) {
 func testSubtypeConstants(t *testing.T) {
 	t.Helper()
 
-	// These constants must match the Python SDK exactly for parity
 	tests := []struct {
 		name     string
 		constant string
@@ -328,10 +322,6 @@ func testInitializeResponseStructure(t *testing.T) {
 	assertControlEqual(t, "interrupt", resp.SupportedCommands[0])
 }
 
-// =============================================================================
-// Phase 2: Request/Response Correlation Tests
-// =============================================================================
-
 func TestRequestIDGeneration(t *testing.T) {
 	t.Run("format_matches_python_sdk", testRequestIDFormat)
 	t.Run("unique_ids", testRequestIDUniqueness)
@@ -563,10 +553,6 @@ func testThreadSafeConcurrentRequests(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Phase 3: Initialize Handshake Tests
-// =============================================================================
-
 func TestInitializeHandshake(t *testing.T) {
 	t.Run("success", testInitializeSuccess)
 	t.Run("timeout", testInitializeTimeout)
@@ -781,10 +767,6 @@ func testInitializeConcurrent(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Phase 4: Message Routing Tests
-// =============================================================================
-
 func TestMessageRouting(t *testing.T) {
 	t.Run("route_control_response", testRouteControlResponse)
 	t.Run("route_regular_message", testRouteRegularMessage)
@@ -944,10 +926,6 @@ func testForwardToStreamFullBuffer(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Phase 6: Interrupt via Protocol Tests
-// =============================================================================
-
 func TestInterruptViaProtocol(t *testing.T) {
 	t.Run("sends_interrupt_request", testInterruptSendsRequest)
 }
@@ -1002,10 +980,6 @@ func testInterruptSendsRequest(t *testing.T) {
 	}
 	assertControlEqual(t, SubtypeInterrupt, request["subtype"])
 }
-
-// =============================================================================
-// Mock Transport for Control Protocol Tests
-// =============================================================================
 
 type controlMockTransport struct {
 	mu          sync.Mutex
@@ -1105,10 +1079,6 @@ func (m *controlMockTransport) waitForFirstWrite(deadline time.Time) (SDKControl
 	return SDKControlRequest{}, false
 }
 
-// =============================================================================
-// Test Helpers
-// =============================================================================
-
 func setupControlTestContext(t *testing.T, timeout time.Duration) (context.Context, context.CancelFunc) {
 	t.Helper()
 	return context.WithTimeout(context.Background(), timeout)
@@ -1127,10 +1097,6 @@ func assertControlEqual(t *testing.T, expected, actual any) {
 		t.Errorf("expected %v, got %v", expected, actual)
 	}
 }
-
-// =============================================================================
-// Phase 7: Dynamic Control Methods Tests (SetModel, SetPermissionMode)
-// =============================================================================
 
 func TestDynamicControlMethods(t *testing.T) {
 	t.Run("set_model", testSetModel)
@@ -1495,10 +1461,6 @@ func testMarshalSetModelWithNil(t *testing.T) {
 		t.Errorf("expected model to be nil, got %v", request["model"])
 	}
 }
-
-// =============================================================================
-// Phase 8: Permission Callback Tests (Issue #8)
-// =============================================================================
 
 func TestPermissionCallback(t *testing.T) {
 	t.Run("allow_callback", testPermissionAllowCallback)
@@ -2045,10 +2007,6 @@ func ptrString(s string) *string {
 	return &s
 }
 
-// =============================================================================
-// RewindFiles Request Serialization Tests (Issue #32)
-// =============================================================================
-
 func TestRewindFilesRequestSerialization(t *testing.T) {
 	t.Run("marshal_rewind_files_request", testMarshalRewindFilesRequest)
 }
@@ -2082,10 +2040,6 @@ func testMarshalRewindFilesRequest(t *testing.T) {
 	assertControlEqual(t, "rewind_files", request["subtype"])
 	assertControlEqual(t, "msg-uuid-12345", request["user_message_id"])
 }
-
-// =============================================================================
-// Phase 9: HandleControlInitErr Tests (Issue #110)
-// =============================================================================
 
 func TestHandleControlInitErr(t *testing.T) {
 	t.Run("unblocks_send_control_request", testInitErrUnblocksSendControlRequest)
@@ -2175,10 +2129,6 @@ func testInitErrOnlyFirstDelivered(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Phase 8: GetMcpStatus Tests (Python PR #516)
-// =============================================================================
-
 func TestProtocolGetMcpStatus(t *testing.T) {
 	t.Run("success_connected_server", testGetMcpStatusConnected)
 	t.Run("success_failed_server", testGetMcpStatusFailed)
@@ -2215,7 +2165,6 @@ func testGetMcpStatusConnected(t *testing.T) {
 		if !ok {
 			return
 		}
-		// Verify the subtype on the wire matches the Python SDK exactly.
 		if reqData, _ := req.Request.(map[string]any); reqData != nil {
 			assertControlEqual(t, SubtypeGetMcpStatus, reqData["subtype"])
 		}

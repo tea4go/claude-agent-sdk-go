@@ -6,7 +6,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
 	"github.com/tea4go/claude-agent-sdk-go/internal/subprocess"
 )
 
@@ -191,9 +190,8 @@ func (c *ClientImpl) prepareOptions() error {
 		return nil // Nil options are acceptable (use defaults)
 	}
 
-	// Auto-configure PermissionPromptToolName when CanUseTool callback is set
-	// This tells CLI to route permission prompts through stdio (control protocol)
-	// Matches Python SDK behavior: permission_prompt_tool_name="stdio"
+	// Auto-configure PermissionPromptToolName when CanUseTool callback is set.
+	// This tells CLI to route permission prompts through stdio (control protocol).
 	if c.options.CanUseTool != nil && c.options.PermissionPromptToolName == nil {
 		stdio := "stdio"
 		c.options.PermissionPromptToolName = &stdio
@@ -251,8 +249,8 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	if c.customTransport != nil {
 		c.transport = c.customTransport
 	} else {
-		// Create default subprocess transport directly (like Python SDK)
-		cliPath, err := cli.FindCLI()
+		// Honor WithCLIPath when set, otherwise fall back to auto-discovery.
+		cliPath, err := resolveCLIPath(c.options)
 		if err != nil {
 			return fmt.Errorf("claude CLI not found: %w", err)
 		}

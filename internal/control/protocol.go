@@ -49,16 +49,16 @@ type Protocol struct {
 	// Configuration
 	initTimeout time.Duration
 
-	// Permission callback (Issue #8)
+	// Permission callback
 	canUseToolCallback CanUseToolCallback
 
-	// Hook callbacks (Issue #9)
+	// Hook callbacks
 	hooks            map[HookEvent][]HookMatcher
 	hookCallbacks    map[string]HookCallback
 	hookCallbacksMu  sync.RWMutex
 	nextHookCallback int64
 
-	// SDK MCP servers for in-process tool handling (Issue #7)
+	// SDK MCP servers for in-process tool handling
 	sdkMcpServers map[string]McpServer
 
 	// Background goroutine management
@@ -494,11 +494,6 @@ func (p *Protocol) GetMcpStatus(ctx context.Context) (*McpStatusResponse, error)
 // The userMessageID should be the UUID from a UserMessage received during the session.
 // Requires EnableFileCheckpointing to be set when creating the client.
 // Returns error if the control request fails or times out.
-//
-// This method matches Python SDK's rewind_files behavior exactly:
-// - Uses "rewind_files" subtype
-// - Sends user_message_id in the request
-// - Uses standard 5-second timeout
 func (p *Protocol) RewindFiles(ctx context.Context, userMessageID string) error {
 	_, err := p.SendControlRequest(ctx, RewindFilesRequest{
 		Subtype:       SubtypeRewindFiles,

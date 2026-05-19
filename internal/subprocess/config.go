@@ -175,7 +175,6 @@ func (t *Transport) GetMcpStatus(ctx context.Context) (*control.McpStatusRespons
 }
 
 // buildProtocolOptions constructs control protocol options from transport configuration.
-// This extracts callback wiring logic from Connect to reduce cyclomatic complexity.
 func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 	var opts []control.ProtocolOption
 
@@ -218,7 +217,7 @@ func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 		}
 	}
 
-	// Wire SDK MCP servers to protocol (Issue #7)
+	// Wire SDK MCP servers to protocol.
 	if t.options != nil && len(t.options.McpServers) > 0 {
 		sdkServers := make(map[string]control.McpServer)
 		for name, config := range t.options.McpServers {
@@ -249,7 +248,6 @@ func (t *Transport) hasSdkMcpServers() bool {
 }
 
 // buildEnvironment constructs the environment variables for the subprocess.
-// This extracts environment setup logic from Connect to reduce cyclomatic complexity.
 func (t *Transport) buildEnvironment() []string {
 	env := os.Environ()
 

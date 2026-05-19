@@ -377,8 +377,6 @@ func validateToolResultBlock(t *testing.T, block ContentBlock) {
 	}
 }
 
-// Issue #24: Test UUID and ParentToolUseID helper methods
-
 // TestUserMessageGetUUID tests the GetUUID helper method
 func TestUserMessageGetUUID(t *testing.T) {
 	tests := []struct {
@@ -514,8 +512,6 @@ func strPtr(s string) *string {
 	return &s
 }
 
-// Issue #23: Test AssistantMessage.Error field and helper methods
-
 // TestAssistantMessageWithError tests AssistantMessage with the Error field set
 func TestAssistantMessageWithError(t *testing.T) {
 	tests := []struct {
@@ -631,8 +627,6 @@ func TestAssistantMessageErrorJSONMarshaling(t *testing.T) {
 		t.Error("Expected 'error' field to be omitted when nil")
 	}
 }
-
-// Issue #98: Test ToolUseResult accessor methods (Python SDK v0.1.22 parity)
 
 // TestUserMessage_ToolUseResult tests ToolUseResult accessor methods
 func TestUserMessage_ToolUseResult(t *testing.T) {

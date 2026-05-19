@@ -43,6 +43,14 @@ type ToolResultBlock = shared.ToolResultBlock
 // StreamMessage represents a message in the streaming protocol.
 type StreamMessage = shared.StreamMessage
 
+// RateLimitEventMessage is a session heartbeat carrying rate-limit window
+// state. Emitted on essentially every CLI session even when nothing is
+// constrained — see IsAllowed for the quick "all good" check.
+type RateLimitEventMessage = shared.RateLimitEventMessage
+
+// RateLimitInfo is the window state carried by RateLimitEventMessage.
+type RateLimitInfo = shared.RateLimitInfo
+
 // MessageIterator provides iteration over messages.
 type MessageIterator = shared.MessageIterator
 
@@ -68,6 +76,14 @@ const (
 
 	// Partial message streaming type
 	MessageTypeStreamEvent = shared.MessageTypeStreamEvent
+
+	// Session heartbeat carrying rate-limit window state.
+	MessageTypeRateLimitEvent = shared.MessageTypeRateLimitEvent
+)
+
+// Rate-limit window status constants.
+const (
+	RateLimitStatusAllowed = shared.RateLimitStatusAllowed
 )
 
 // Re-export content block type constants

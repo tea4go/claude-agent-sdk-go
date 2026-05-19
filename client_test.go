@@ -41,7 +41,7 @@ func testBasicLifecycle(ctx context.Context, t *testing.T) {
 	t.Helper()
 	transport := newClientMockTransport()
 
-	// Test defer-based resource management (Go equivalent of Python context manager)
+	// Test defer-based resource management.
 	func() {
 		client := setupClientForTest(t, transport)
 		defer disconnectClientSafely(t, client)
@@ -1073,7 +1073,6 @@ func TestClientIteratorClose(t *testing.T) {
 	}
 }
 
-// Mock Transport Implementation - simplified following options_test.go patterns
 type clientMockTransport struct {
 	mu           sync.Mutex
 	connected    bool
@@ -1655,8 +1654,8 @@ func verifyIteratorClose(t *testing.T, client Client, _ *clientMockTransport, te
 	}
 }
 
-// TestClientContextManager tests Go-idiomatic context manager pattern following Python SDK parity
-// Covers the single critical improvement: automatic resource lifecycle management
+// TestClientContextManager tests automatic resource lifecycle management
+// via the Go-idiomatic context manager pattern.
 func TestClientContextManager(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -2010,7 +2009,7 @@ func TestClientPythonSDKCompatibility(t *testing.T) {
 		t.Fatal("ReceiveResponse returned nil iterator")
 	}
 
-	// Test that iterator can be closed immediately (following existing test patterns)
+	// Test that iterator can be closed immediately.
 	err = iter.Close()
 	assertNoError(t, err)
 }
@@ -2243,8 +2242,7 @@ func TestClientIteratorNextErrorPaths(t *testing.T) {
 	}
 }
 
-// ===== NEW CLEAN API TESTS =====
-// These tests are for the new clean Query API without variadic parameters
+// Tests for the Query API without variadic parameters.
 
 func TestClientQueryDefaultSession(t *testing.T) {
 	ctx, cancel := setupClientTestContext(t, 5*time.Second)
@@ -2446,8 +2444,7 @@ func TestClientQueryNotConnectedError(t *testing.T) {
 	}
 }
 
-// TestGetServerInfo tests the GetServerInfo method for diagnostic information retrieval
-// Covers Issue #13: Add GetServerInfo Method for Diagnostics
+// TestGetServerInfo tests the GetServerInfo method for diagnostic information retrieval.
 func TestGetServerInfo(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2638,10 +2635,6 @@ func TestGetServerInfoConcurrent(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Dynamic Control Methods Tests (SetModel, SetPermissionMode) - Issues #51, #52
-// =============================================================================
-
 func TestClientDynamicControl(t *testing.T) {
 	t.Run("set_model", testClientSetModel)
 	t.Run("set_permission_mode", testClientSetPermissionMode)
@@ -2826,10 +2819,6 @@ func testClientSetPermissionModeTransportError(t *testing.T) {
 		t.Errorf("expected transport error, got: %v", err)
 	}
 }
-
-// =============================================================================
-// RewindFiles Tests (Issue #32)
-// =============================================================================
 
 func TestClientRewindFiles(t *testing.T) {
 	t.Run("success", testClientRewindFilesSuccess)

@@ -11,7 +11,6 @@ import (
 // Ensure context is used (for mock transport)
 var _ = context.Background
 
-// T015: Default Options Creation - Test functional options integration
 func TestDefaultOptions(t *testing.T) {
 	// Test that NewOptions() creates proper defaults via shared package
 	options := NewOptions()
@@ -24,9 +23,7 @@ func TestDefaultOptions(t *testing.T) {
 	assertOptionsSystemPrompt(t, optionsWithPrompt, "test prompt")
 }
 
-// T016: Options with Tools
 func TestOptionsWithTools(t *testing.T) {
-	// Test Options with allowed_tools and disallowed_tools to match Python SDK
 	options := NewOptions(
 		WithAllowedTools("Read", "Write", "Edit"),
 		WithDisallowedTools("Bash"),
@@ -97,7 +94,6 @@ func TestWithBetasOption(t *testing.T) {
 	}
 }
 
-// T017: Permission Mode Options
 func TestPermissionModeOptions(t *testing.T) {
 	// Test all permission modes using table-driven approach
 	tests := []struct {
@@ -118,7 +114,6 @@ func TestPermissionModeOptions(t *testing.T) {
 	}
 }
 
-// T018: System Prompt Options
 func TestSystemPromptOptions(t *testing.T) {
 	// Test system_prompt and append_system_prompt
 	systemPrompt := "You are a helpful assistant."
@@ -144,7 +139,6 @@ func TestSystemPromptOptions(t *testing.T) {
 	assertOptionsSystemPromptNil(t, appendOnlyOptions)
 }
 
-// T019: Session Continuation Options
 func TestSessionContinuationOptions(t *testing.T) {
 	// Test continue_conversation and resume options
 	sessionID := "session-123"
@@ -169,7 +163,6 @@ func TestSessionContinuationOptions(t *testing.T) {
 	assertOptionsContinueConversation(t, resumeOnlyOptions, false) // default
 }
 
-// T020: Model Specification Options
 func TestModelSpecificationOptions(t *testing.T) {
 	// Test model and permission_prompt_tool_name
 	model := "claude-3-5-sonnet-20241022"
@@ -195,7 +188,6 @@ func TestModelSpecificationOptions(t *testing.T) {
 	assertOptionsModelNil(t, toolOnlyOptions)
 }
 
-// T021: Functional Options Pattern
 func TestFunctionalOptionsPattern(t *testing.T) {
 	// Test chaining multiple functional options to create a fluent API
 	options := NewOptions(
@@ -261,7 +253,6 @@ func TestFunctionalOptionsPattern(t *testing.T) {
 	}
 }
 
-// T022: MCP Server Configuration
 func TestMcpServerConfiguration(t *testing.T) {
 	// Test all three MCP server configuration types: stdio, SSE, HTTP
 
@@ -369,7 +360,6 @@ func TestMcpServerConfiguration(t *testing.T) {
 	}
 }
 
-// T023: Extra Args Support
 func TestExtraArgsSupport(t *testing.T) {
 	// Test arbitrary CLI flag support via ExtraArgs map[string]*string
 
@@ -447,7 +437,6 @@ func TestExtraArgsSupport(t *testing.T) {
 	}
 }
 
-// T024: Options Validation
 func TestOptionsValidationIntegration(t *testing.T) {
 	// Test that validation works through functional options API (detailed tests in internal/shared)
 	validOptions := NewOptions(
@@ -462,7 +451,6 @@ func TestOptionsValidationIntegration(t *testing.T) {
 	assertOptionsValidationError(t, invalidOptions, true, "negative max thinking tokens should fail validation")
 }
 
-// T025: NewOptions Constructor
 func TestNewOptionsConstructor(t *testing.T) {
 	// Test Options creation with functional options applied correctly with defaults
 
@@ -661,8 +649,6 @@ func TestWithTransport(t *testing.T) {
 		}
 	})
 }
-
-// Helper Functions - following client_test.go patterns
 
 // assertOptionsMaxThinkingTokens verifies MaxThinkingTokens value
 func assertOptionsMaxThinkingTokens(t *testing.T, options *Options, expected int) {
@@ -1045,7 +1031,6 @@ func TestWithEnvIntegration(t *testing.T) {
 	assertOptionsModel(t, options, "claude-3-5-sonnet-20241022")
 }
 
-// Helper function following client_test.go patterns
 func assertEnvVars(t *testing.T, actual, expected map[string]string) {
 	t.Helper()
 	if len(actual) != len(expected) {
@@ -1060,7 +1045,6 @@ func assertEnvVars(t *testing.T, actual, expected map[string]string) {
 	}
 }
 
-// T026: MaxBudgetUSD Option
 func TestMaxBudgetUSDOption(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1087,7 +1071,6 @@ func TestMaxBudgetUSDOption(t *testing.T) {
 	})
 }
 
-// T027: FallbackModel Option
 func TestFallbackModelOption(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1113,7 +1096,6 @@ func TestFallbackModelOption(t *testing.T) {
 	})
 }
 
-// T028: User Option
 func TestUserOption(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1139,7 +1121,6 @@ func TestUserOption(t *testing.T) {
 	})
 }
 
-// T029: MaxBufferSize Option
 func TestMaxBufferSizeOption(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1165,7 +1146,6 @@ func TestMaxBufferSizeOption(t *testing.T) {
 	})
 }
 
-// T030: New Options Integration Test
 func TestNewConfigOptionsIntegration(t *testing.T) {
 	// Test all new options together with existing options
 	options := NewOptions(
@@ -1270,7 +1250,6 @@ func assertOptionsMaxBufferSizeNil(t *testing.T, options *Options) {
 	}
 }
 
-// T031: Tools Preset Option
 func TestWithToolsPreset(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1306,13 +1285,11 @@ func TestWithToolsPreset(t *testing.T) {
 	}
 }
 
-// T032: WithClaudeCodeTools Convenience Function
 func TestWithClaudeCodeTools(t *testing.T) {
 	options := NewOptions(WithClaudeCodeTools())
 	assertOptionsToolsPreset(t, options, "preset", "claude_code")
 }
 
-// T033: WithTools List Option
 func TestWithToolsList(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1344,7 +1321,6 @@ func TestWithToolsList(t *testing.T) {
 	}
 }
 
-// T034: Tools Option Override Behavior
 func TestToolsOptionOverride(t *testing.T) {
 	// Test that later Tools options override earlier ones
 	t.Run("preset_overrides_list", func(t *testing.T) {
@@ -1364,7 +1340,6 @@ func TestToolsOptionOverride(t *testing.T) {
 	})
 }
 
-// T035: Tools Option Nil by Default
 func TestToolsOptionNilByDefault(t *testing.T) {
 	options := NewOptions()
 	assertOptionsToolsNil(t, options)
@@ -1631,6 +1606,82 @@ func TestPluginsMixedWithOtherOptions(t *testing.T) {
 	assertOptionsBetas(t, options.Betas, []SdkBeta{SdkBetaContext1M})
 }
 
+// TestWithSkillsOption tests the Skills functional options.
+func TestWithSkillsOption(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() *Options
+		expected any
+	}{
+		{
+			name:     "skills_all_via_helper",
+			setup:    func() *Options { return NewOptions(WithSkillsAll()) },
+			expected: SkillsAll,
+		},
+		{
+			name:     "skills_all_via_with_skills",
+			setup:    func() *Options { return NewOptions(WithSkills(SkillsAll)) },
+			expected: SkillsAll,
+		},
+		{
+			name:     "skills_list",
+			setup:    func() *Options { return NewOptions(WithSkillsList("pdf", "docx")) },
+			expected: []string{"pdf", "docx"},
+		},
+		{
+			name:     "skills_list_via_with_skills",
+			setup:    func() *Options { return NewOptions(WithSkills([]string{"a", "b"})) },
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "skills_disabled",
+			setup:    func() *Options { return NewOptions(WithSkillsDisabled()) },
+			expected: []string{},
+		},
+		{
+			name:     "skills_unset_is_nil",
+			setup:    func() *Options { return NewOptions() },
+			expected: nil,
+		},
+		{
+			name: "override_skills",
+			setup: func() *Options {
+				return NewOptions(
+					WithSkillsList("first"),
+					WithSkillsAll(),
+				)
+			},
+			expected: SkillsAll,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := tt.setup()
+			switch want := tt.expected.(type) {
+			case nil:
+				if options.Skills != nil {
+					t.Errorf("Expected Skills = nil, got %v", options.Skills)
+				}
+			case string:
+				got, ok := options.Skills.(string)
+				if !ok {
+					t.Fatalf("Expected Skills to be string, got %T", options.Skills)
+				}
+				if got != want {
+					t.Errorf("Expected Skills = %q, got %q", want, got)
+				}
+			case []string:
+				got, ok := options.Skills.([]string)
+				if !ok {
+					t.Fatalf("Expected Skills to be []string, got %T", options.Skills)
+				}
+				assertOptionsStringSlice(t, got, want, "Skills")
+			}
+		})
+	}
+}
+
 // assertOptionsPlugins verifies Plugins slice values
 func assertOptionsPlugins(t *testing.T, actual, expected []SdkPluginConfig) {
 	t.Helper()
@@ -1737,7 +1788,6 @@ func assertOptionsSettingSources(t *testing.T, options *Options, expected []Sett
 	}
 }
 
-// T036: Debug Writer Options - Issue #12
 func TestWithDebugWriter(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1870,7 +1920,6 @@ func TestDebugWriterConvenienceFunctions(t *testing.T) {
 	})
 }
 
-// T037: OutputFormat Option - Structured Output Support (Issue #29)
 func TestWithOutputFormat(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1932,7 +1981,6 @@ func TestWithOutputFormat(t *testing.T) {
 	}
 }
 
-// T038: WithJSONSchema Convenience Function
 func TestWithJSONSchema(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1980,7 +2028,6 @@ func TestWithJSONSchema(t *testing.T) {
 	}
 }
 
-// T039: OutputFormat Override Behavior
 func TestOutputFormatOverride(t *testing.T) {
 	firstSchema := map[string]any{"type": "string"}
 	secondSchema := map[string]any{"type": "object"}
@@ -1997,7 +2044,6 @@ func TestOutputFormatOverride(t *testing.T) {
 	}
 }
 
-// T040: OutputFormat Integration with Other Options
 func TestOutputFormatIntegration(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
@@ -2054,7 +2100,6 @@ func assertOutputFormatHasSchema(t *testing.T, opts *Options) {
 	}
 }
 
-// T041: Sandbox Settings Option
 func TestWithSandbox(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2119,7 +2164,6 @@ func TestWithSandbox(t *testing.T) {
 	}
 }
 
-// T042: Sandbox Enabled Convenience Option
 func TestWithSandboxEnabled(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2139,7 +2183,6 @@ func TestWithSandboxEnabled(t *testing.T) {
 	}
 }
 
-// T043: Auto Allow Bash Convenience Option
 func TestWithAutoAllowBashIfSandboxed(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -2159,7 +2202,6 @@ func TestWithAutoAllowBashIfSandboxed(t *testing.T) {
 	}
 }
 
-// T044: Sandbox Excluded Commands Option
 func TestWithSandboxExcludedCommands(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2180,7 +2222,6 @@ func TestWithSandboxExcludedCommands(t *testing.T) {
 	}
 }
 
-// T045: Sandbox Network Configuration Option
 func TestWithSandboxNetwork(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2223,7 +2264,6 @@ func TestWithSandboxNetwork(t *testing.T) {
 	}
 }
 
-// T046: Sandbox Options Composition
 func TestSandboxOptionsComposition(t *testing.T) {
 	// Test that multiple sandbox options compose correctly
 	options := NewOptions(
@@ -2242,7 +2282,6 @@ func TestSandboxOptionsComposition(t *testing.T) {
 	assertOptionsSandboxNetworkAllowLocalBinding(t, options, true)
 }
 
-// T047: Sandbox Option Override Behavior
 func TestSandboxOptionOverride(t *testing.T) {
 	// Test that WithSandbox replaces previous sandbox settings
 	t.Run("full_replace", func(t *testing.T) {
@@ -2268,7 +2307,6 @@ func TestSandboxOptionOverride(t *testing.T) {
 	})
 }
 
-// T048: Sandbox Integration with Other Options
 func TestSandboxIntegrationWithOtherOptions(t *testing.T) {
 	options := NewOptions(
 		WithSystemPrompt("You are a helpful assistant"),
@@ -2288,7 +2326,6 @@ func TestSandboxIntegrationWithOtherOptions(t *testing.T) {
 	assertOptionsSandboxEnabled(t, options, true)
 }
 
-// T049: Sandbox Nil by Default
 func TestSandboxNilByDefault(t *testing.T) {
 	options := NewOptions()
 	assertOptionsSandboxNil(t, options)
@@ -2437,7 +2474,6 @@ func intPtr(i int) *int {
 	return &i
 }
 
-// T050: Agent Definition Options
 func TestAgentDefinitionOptions(t *testing.T) {
 	t.Run("single_agent", func(t *testing.T) {
 		options := NewOptions(WithAgent("code-reviewer", AgentDefinition{
@@ -2539,7 +2575,6 @@ func TestAgentDefinitionOptions(t *testing.T) {
 	})
 }
 
-// T051: Agent Model Constants
 func TestAgentModelConstants(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2561,7 +2596,6 @@ func TestAgentModelConstants(t *testing.T) {
 	}
 }
 
-// T052: Agent Options Integration
 func TestAgentOptionsIntegration(t *testing.T) {
 	options := NewOptions(
 		WithSystemPrompt("System prompt"),
@@ -2694,7 +2728,6 @@ func assertOptionsIncludePartialMessages(t *testing.T, options *Options, expecte
 	}
 }
 
-// T053: Stderr Callback Option - Issue #53
 func TestWithStderrCallback(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -2865,10 +2898,6 @@ func TestStderrCallbackIndependentOfDebugWriter(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// Permission Callback Option Tests (Issue #8)
-// =============================================================================
 
 // TestWithCanUseTool tests the permission callback option
 func TestWithCanUseTool(t *testing.T) {
@@ -3207,10 +3236,6 @@ func TestPermissionUpdateTypeConstants(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Hook Options Tests (Issue #9)
-// =============================================================================
-
 // TestHookEventConstants tests that hook event constants are correctly exported
 func TestHookEventConstants(t *testing.T) {
 	tests := []struct {
@@ -3491,10 +3516,6 @@ func TestMultipleCallbacksPerMatcher(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// File Checkpointing Options Tests (Issue #32)
-// =============================================================================
-
 // TestFileCheckpointingOptions tests file checkpointing option functions
 func TestFileCheckpointingOptions(t *testing.T) {
 	t.Run("with_enable_file_checkpointing_true", func(t *testing.T) {
@@ -3525,10 +3546,6 @@ func TestFileCheckpointingOptions(t *testing.T) {
 		}
 	})
 }
-
-// =============================================================================
-// SDK MCP Server Options Tests (Issue #7)
-// =============================================================================
 
 // TestWithSdkMcpServer tests the SDK MCP server option function
 func TestWithSdkMcpServer(t *testing.T) {

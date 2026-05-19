@@ -16,7 +16,7 @@ const (
 	MessageTypeControlResponse = "control_response"
 )
 
-// Request subtype constants matching Python SDK for 100% parity.
+// Request subtype constants.
 const (
 	// SubtypeInterrupt requests interruption of current operation.
 	SubtypeInterrupt = "interrupt"
@@ -108,7 +108,6 @@ type SetPermissionModeRequest struct {
 }
 
 // SetModelRequest changes the AI model at runtime.
-// This matches Python SDK's set_model() behavior exactly.
 type SetModelRequest struct {
 	// Subtype is always SubtypeSetModel.
 	Subtype string `json:"subtype"`
@@ -118,7 +117,6 @@ type SetModelRequest struct {
 }
 
 // RewindFilesRequest requests rewinding files to a specific user message state.
-// Matches Python SDK's SDKControlRewindFilesRequest structure.
 type RewindFilesRequest struct {
 	// Subtype is always SubtypeRewindFiles ("rewind_files").
 	Subtype string `json:"subtype"`
@@ -127,12 +125,7 @@ type RewindFilesRequest struct {
 	UserMessageID string `json:"user_message_id"`
 }
 
-// =============================================================================
-// Permission Callback Types (Issue #8)
-// =============================================================================
-
 // PermissionUpdateType specifies the type of permission update.
-// Matches Python SDK's Literal type exactly for 100% parity.
 type PermissionUpdateType string
 
 const (
@@ -160,7 +153,6 @@ type PermissionRuleValue struct {
 }
 
 // PermissionUpdate represents a dynamic permission rule update.
-// Matches Python SDK's PermissionUpdate dataclass.
 type PermissionUpdate struct {
 	// Type is the kind of permission update.
 	Type PermissionUpdateType `json:"type"`
@@ -177,7 +169,6 @@ type PermissionUpdate struct {
 }
 
 // ToolPermissionContext provides context for permission callbacks.
-// Matches Python SDK's ToolPermissionContext dataclass.
 type ToolPermissionContext struct {
 	// Signal is reserved for future abort signal support (currently unused).
 	Signal any `json:"-"`
@@ -250,12 +241,8 @@ type CanUseToolCallback func(
 	permCtx ToolPermissionContext,
 ) (PermissionResult, error)
 
-// =============================================================================
-// MCP Status Types (Python PR #516)
-// =============================================================================
-
 // SubtypeGetMcpStatus is the control request subtype for querying MCP server status.
-// Wire value matches Python SDK: {"subtype": "mcp_status"}.
+// Wire value: {"subtype": "mcp_status"}.
 const SubtypeGetMcpStatus = "mcp_status"
 
 // GetMcpStatusRequest requests the status of all configured MCP servers.
@@ -346,14 +333,10 @@ type McpStatusResponse struct {
 	McpServers []McpServerStatus `json:"mcpServers"`
 }
 
-// =============================================================================
-// MCP Server Types (Issue #7)
-// =============================================================================
-
 // Type aliases for MCP types from shared package.
 // Using type aliases (not type definitions) ensures interface compatibility:
-// - shared.McpServer and control.McpServer are the SAME type
-// - This allows transport to pass shared.McpServer to control.WithSdkMcpServers()
+// shared.McpServer and control.McpServer are the same type, so transport can
+// pass shared.McpServer to control.WithSdkMcpServers().
 type (
 	// McpServer is the interface for in-process SDK MCP servers.
 	McpServer = shared.McpServer
@@ -363,4 +346,8 @@ type (
 	McpToolResult = shared.McpToolResult
 	// McpContent represents content returned by a tool.
 	McpContent = shared.McpContent
+	// ToolAnnotations carries MCP-spec behavioral hints attached to an SDK MCP tool.
+	// Distinct from McpToolAnnotations above, which is the CLI-stripped response
+	// shape returned by GetMcpStatus.
+	ToolAnnotations = shared.ToolAnnotations
 )

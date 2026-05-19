@@ -17,6 +17,10 @@ const (
 
 	// Partial message streaming type
 	MessageTypeStreamEvent = "stream_event"
+
+	// Session heartbeat carrying rate-limit window state. Emitted on
+	// essentially every CLI session — even when nothing is constrained.
+	MessageTypeRateLimitEvent = "rate_limit_event"
 )
 
 // Content block type constants
@@ -31,9 +35,6 @@ const (
 type AssistantMessageError string
 
 // AssistantMessageError constants for error type identification.
-// Matches Python SDK Literal values from types.py (AssistantMessageError):
-// authentication_failed, billing_error, rate_limit, invalid_request,
-// server_error, unknown.
 const (
 	AssistantMessageErrorAuthFailed     AssistantMessageError = "authentication_failed"
 	AssistantMessageErrorBilling        AssistantMessageError = "billing_error"
@@ -121,8 +122,8 @@ func (m *AssistantMessage) Type() string {
 }
 
 // GetParentToolUseID returns the parent tool use ID or empty string if nil.
-// Set by the CLI on assistant messages produced inside a subagent (Agent/Task tool)
-// to identify the orchestrator tool_use_id that spawned the subagent.
+// On assistant messages produced inside a subagent (Agent/Task tool), this
+// identifies the orchestrator tool_use_id that spawned the subagent.
 func (m *AssistantMessage) GetParentToolUseID() string {
 	if m.ParentToolUseID != nil {
 		return *m.ParentToolUseID
@@ -278,6 +279,49 @@ type RawControlMessage struct {
 // Type returns the message type for RawControlMessage.
 func (m *RawControlMessage) Type() string {
 	return m.MessageType
+}
+
+// Rate-limit window status constants. Status carries one of these strings;
+// "allowed" means the session is fine and the message is informational only.
+const (
+	RateLimitStatusAllowed = "allowed"
+)
+
+// RateLimitInfo carries the rate-limit window state from a rate_limit_event
+// message. The Claude CLI emits one of these as a per-session heartbeat
+// regardless of whether the user is actually constrained — check Status to
+// decide if action is needed.
+type RateLimitInfo struct {
+	Status          string `json:"status"`
+	ResetsAt        int64  `json:"resetsAt"`
+	RateLimitType   string `json:"rateLimitType"`
+	OverageStatus   string `json:"overageStatus,omitempty"`
+	OverageResetsAt int64  `json:"overageResetsAt,omitempty"`
+	IsUsingOverage  bool   `json:"isUsingOverage,omitempty"`
+}
+
+// RateLimitEventMessage is a session heartbeat from the CLI announcing the
+// current rate-limit window. Emitted on essentially every session even when
+// nothing is constrained — most consumers can simply ignore the message
+// unless RateLimitInfo.Status differs from RateLimitStatusAllowed.
+//
+// See https://github.com/severity1/claude-agent-sdk-go/issues/126.
+type RateLimitEventMessage struct {
+	MessageType   string        `json:"type"`
+	RateLimitInfo RateLimitInfo `json:"rate_limit_info"`
+	UUID          string        `json:"uuid,omitempty"`
+	SessionID     string        `json:"session_id,omitempty"`
+}
+
+// Type returns the message type for RateLimitEventMessage.
+func (m *RateLimitEventMessage) Type() string {
+	return MessageTypeRateLimitEvent
+}
+
+// IsAllowed returns true when the rate-limit window is healthy — i.e. the
+// heartbeat is informational and the consumer can keep going.
+func (m *RateLimitEventMessage) IsAllowed() bool {
+	return m.RateLimitInfo.Status == RateLimitStatusAllowed
 }
 
 // Stream event type constants for Event["type"] discrimination.
