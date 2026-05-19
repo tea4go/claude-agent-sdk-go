@@ -131,18 +131,20 @@ func WithDisallowedTools(tools ...string) Option {
 	}
 }
 
-func WithSkills(skills map[string]func(context.Context, string) (string, error)) Option {
+// WithSkillImplementations sets in-process skill implementations directly.
+func WithSkillImplementations(skills map[string]func(context.Context, string) (string, error)) Option {
 	return func(o *Options) {
-		o.Skills = skills
+		o.SkillImplementations = skills
 	}
 }
 
-func WithSkill(name string, handler func(context.Context, string) (string, error)) Option {
+// WithSkillImplementation registers a single in-process skill implementation.
+func WithSkillImplementation(name string, handler func(context.Context, string) (string, error)) Option {
 	return func(o *Options) {
-		if o.Skills == nil {
-			o.Skills = map[string]func(context.Context, string) (string, error){}
+		if o.SkillImplementations == nil {
+			o.SkillImplementations = map[string]func(context.Context, string) (string, error){}
 		}
-		o.Skills[name] = handler
+		o.SkillImplementations[name] = handler
 	}
 }
 

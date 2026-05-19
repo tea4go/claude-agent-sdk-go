@@ -56,7 +56,7 @@ func TestQuerySkillDispatch(t *testing.T) {
 		ctx,
 		"/echo hi",
 		newQueryMockTransport(WithQueryConnectError(errors.New("connect should not be called"))),
-		func(o *Options) { o.Skills = skills },
+		func(o *Options) { o.SkillImplementations = skills },
 	)
 	if err != nil {
 		t.Fatalf("QueryWithTransport error: %v", err)
@@ -145,7 +145,7 @@ func TestQueryUnknownSkillFallsBackToTransport(t *testing.T) {
 		ctx,
 		"/unknown hi",
 		newQueryMockTransport(WithQueryConnectError(errors.New("connect called"))),
-		func(o *Options) { o.Skills = skills },
+		func(o *Options) { o.SkillImplementations = skills },
 	)
 	if err != nil {
 		t.Fatalf("QueryWithTransport error: %v", err)
@@ -169,7 +169,7 @@ func TestClientSkillDispatch(t *testing.T) {
 		},
 	}
 
-	client := NewClientWithTransport(transport, func(o *Options) { o.Skills = skills })
+	client := NewClientWithTransport(transport, func(o *Options) { o.SkillImplementations = skills })
 	if err := client.Connect(ctx); err != nil {
 		t.Fatalf("connect error: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestClientUnknownSkillFallsBackToTransport(t *testing.T) {
 		},
 	}
 
-	client := NewClientWithTransport(transport, func(o *Options) { o.Skills = skills })
+	client := NewClientWithTransport(transport, func(o *Options) { o.SkillImplementations = skills })
 	if err := client.Connect(ctx); err != nil {
 		t.Fatalf("connect error: %v", err)
 	}

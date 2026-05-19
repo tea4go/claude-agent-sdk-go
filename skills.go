@@ -104,8 +104,8 @@ func (it *skillIterator) Close() error {
 }
 
 func getSkillHandler(options *Options, name string) (func(context.Context, string) (string, error), bool) {
-	if options != nil && options.Skills != nil {
-		handler, exists := options.Skills[name]
+	if options != nil && options.SkillImplementations != nil {
+		handler, exists := options.SkillImplementations[name]
 		return handler, exists && handler != nil
 	}
 
