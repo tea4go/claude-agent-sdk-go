@@ -44,6 +44,24 @@ const (
 	AssistantMessageErrorUnknown        AssistantMessageError = "unknown"
 )
 
+// Stop reason constants for AssistantMessage.StopReason.
+// These match the Anthropic API stop_reason values.
+const (
+	StopReasonEndTurn      = "end_turn"
+	StopReasonToolUse      = "tool_use"
+	StopReasonStopSequence = "stop_sequence"
+	StopReasonMaxTokens    = "max_tokens"
+)
+
+// Usage represents token usage information from the Claude API.
+// Present on AssistantMessage (per-turn) and ResultMessage (conversation total).
+type Usage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+}
+
 // Message represents any message type in the Claude Code protocol.
 type Message interface {
 	Type() string
@@ -112,6 +130,8 @@ type AssistantMessage struct {
 	MessageType     string                 `json:"type"`
 	Content         []ContentBlock         `json:"content"`
 	Model           string                 `json:"model"`
+	Usage           *Usage                 `json:"usage,omitempty"`
+	StopReason      *string                `json:"stop_reason,omitempty"`
 	Error           *AssistantMessageError `json:"error,omitempty"`
 	ParentToolUseID *string                `json:"parent_tool_use_id,omitempty"`
 }
@@ -119,6 +139,24 @@ type AssistantMessage struct {
 // Type returns the message type for AssistantMessage.
 func (m *AssistantMessage) Type() string {
 	return MessageTypeAssistant
+}
+
+// HasUsage returns true if per-turn token usage is available.
+func (m *AssistantMessage) HasUsage() bool {
+	return m.Usage != nil
+}
+
+// GetStopReason returns the stop reason or empty string if nil.
+func (m *AssistantMessage) GetStopReason() string {
+	if m.StopReason != nil {
+		return *m.StopReason
+	}
+	return ""
+}
+
+// IsToolUse returns true if the message stopped because Claude wants to use a tool.
+func (m *AssistantMessage) IsToolUse() bool {
+	return m.StopReason != nil && *m.StopReason == StopReasonToolUse
 }
 
 // GetParentToolUseID returns the parent tool use ID or empty string if nil.
@@ -196,7 +234,7 @@ type ResultMessage struct {
 	NumTurns         int             `json:"num_turns"`
 	SessionID        string          `json:"session_id"`
 	TotalCostUSD     *float64        `json:"total_cost_usd,omitempty"`
-	Usage            *map[string]any `json:"usage,omitempty"`
+	Usage            *Usage          `json:"usage,omitempty"`
 	Result           *string         `json:"result,omitempty"`
 	StructuredOutput any             `json:"structured_output,omitempty"`
 }
@@ -204,6 +242,11 @@ type ResultMessage struct {
 // Type returns the message type for ResultMessage.
 func (m *ResultMessage) Type() string {
 	return MessageTypeResult
+}
+
+// HasUsage returns true if conversation-level token usage is available.
+func (m *ResultMessage) HasUsage() bool {
+	return m.Usage != nil
 }
 
 // MarshalJSON implements custom JSON marshaling for ResultMessage
@@ -279,6 +322,29 @@ type RawControlMessage struct {
 // Type returns the message type for RawControlMessage.
 func (m *RawControlMessage) Type() string {
 	return m.MessageType
+}
+
+// RawMessage represents a CLI message with an unrecognized type field.
+// It preserves the original type string and all data so consumers can inspect
+// future CLI message types without SDK upgrades.
+type RawMessage struct {
+	MessageType string         `json:"type"`
+	Data        map[string]any `json:"-"`
+}
+
+// Type returns the original message type string.
+func (m *RawMessage) Type() string {
+	return m.MessageType
+}
+
+// MarshalJSON implements custom JSON marshaling for RawMessage.
+func (m *RawMessage) MarshalJSON() ([]byte, error) {
+	data := make(map[string]any)
+	for k, v := range m.Data {
+		data[k] = v
+	}
+	data["type"] = m.MessageType
+	return json.Marshal(data)
 }
 
 // Rate-limit window status constants. Status carries one of these strings;

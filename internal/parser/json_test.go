@@ -521,9 +521,10 @@ func TestParseUserMessageToolUseResult(t *testing.T) {
 // TestParseErrors tests various error conditions
 func TestParseErrors(t *testing.T) {
 	tests := []struct {
-		name        string
-		data        map[string]any
-		expectError string
+		name             string
+		data             map[string]any
+		expectError      string
+		expectRawMessage bool
 	}{
 		{
 			name:        "missing_type_field",
@@ -531,9 +532,9 @@ func TestParseErrors(t *testing.T) {
 			expectError: "missing or invalid type field",
 		},
 		{
-			name:        "unknown_message_type",
-			data:        map[string]any{"type": "unknown_type", "content": "test"},
-			expectError: "unknown message type: unknown_type",
+			name:             "unknown_message_type",
+			data:             map[string]any{"type": "unknown_type", "content": "test"},
+			expectRawMessage: true,
 		},
 		{
 			name:        "user_message_missing_message_field",
@@ -554,7 +555,20 @@ func TestParseErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			parser := setupParserTest(t)
 
-			_, err := parser.ParseMessage(test.data)
+			msg, err := parser.ParseMessage(test.data)
+			if test.expectRawMessage {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				rm, ok := msg.(*shared.RawMessage)
+				if !ok {
+					t.Fatalf("expected *RawMessage, got %T", msg)
+				}
+				if rm.MessageType != "unknown_type" {
+					t.Errorf("expected MessageType 'unknown_type', got %q", rm.MessageType)
+				}
+				return
+			}
 			assertParseError(t, err, test.expectError)
 		})
 	}
@@ -926,18 +940,21 @@ func TestParseMessages(t *testing.T) {
 	assertNoParseError(t, err)
 	assertMessageCount(t, messages, 2)
 
-	// Test error handling
-	errorLines := []string{
+	// Test unknown type produces RawMessage (no error)
+	unknownLines := []string{
 		`{"type": "user", "message": {"content": "Valid"}}`,
-		`{"type": "invalid"}`, // This should cause an error
+		`{"type": "invalid"}`, // Unknown type -> RawMessage, not error
 	}
 
-	_, err = ParseMessages(errorLines)
-	if err == nil {
-		t.Error("Expected error for invalid message type")
+	messages, err = ParseMessages(unknownLines)
+	assertNoParseError(t, err)
+	assertMessageCount(t, messages, 2)
+	rm, ok := messages[1].(*shared.RawMessage)
+	if !ok {
+		t.Fatalf("expected *RawMessage for unknown type, got %T", messages[1])
 	}
-	if !strings.Contains(err.Error(), "error parsing line 1") {
-		t.Errorf("Expected line number in error, got: %v", err)
+	if rm.MessageType != "invalid" {
+		t.Errorf("expected MessageType 'invalid', got %q", rm.MessageType)
 	}
 }
 
@@ -946,9 +963,10 @@ func TestParseErrorConditions(t *testing.T) {
 	parser := setupParserTest(t)
 
 	tests := []struct {
-		name        string
-		data        map[string]any
-		expectError string
+		name             string
+		data             map[string]any
+		expectError      string
+		expectRawMessage bool
 	}{
 		{
 			name: "user_message_invalid_content_type",
@@ -1034,9 +1052,10 @@ func TestResultMessageErrorConditions(t *testing.T) {
 	parser := setupParserTest(t)
 
 	tests := []struct {
-		name        string
-		data        map[string]any
-		expectError string
+		name             string
+		data             map[string]any
+		expectError      string
+		expectRawMessage bool
 	}{
 		{
 			name:        "missing_subtype",
@@ -1321,15 +1340,15 @@ func TestProcessLineEdgeCases(t *testing.T) {
 		t.Errorf("Expected no messages on error, got %d", len(messages))
 	}
 
-	// Test multiple lines with one having an error
+	// Test multiple lines with one having an unknown type
 	mixedLine := `{"type": "system", "subtype": "ok"}` + "\n" + `{"type": "invalid"}`
 	messages2, err2 := parser.ProcessLine(mixedLine)
-	if err2 == nil {
-		t.Error("Expected error for second invalid message")
+	if err2 != nil {
+		t.Errorf("Unexpected error: %v", err2)
 	}
-	// Should return the first valid message before error
-	if len(messages2) != 1 {
-		t.Errorf("Expected 1 message before error, got %d", len(messages2))
+	// Both messages should parse: SystemMessage + RawMessage
+	if len(messages2) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(messages2))
 	}
 }
 
@@ -1971,9 +1990,10 @@ func TestStreamEventMessageParsing(t *testing.T) {
 // Following established pattern from TestParseErrorConditions
 func TestStreamEventErrorConditions(t *testing.T) {
 	tests := []struct {
-		name        string
-		data        map[string]any
-		expectError string
+		name             string
+		data             map[string]any
+		expectError      string
+		expectRawMessage bool
 	}{
 		{
 			name:        "stream_event_missing_uuid",

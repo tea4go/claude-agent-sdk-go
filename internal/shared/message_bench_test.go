@@ -117,9 +117,9 @@ func BenchmarkAssistantMessage_Marshal(b *testing.B) {
 // BenchmarkResultMessage_Marshal measures ResultMessage JSON serialization.
 func BenchmarkResultMessage_Marshal(b *testing.B) {
 	cost := 0.01
-	usage := map[string]any{
-		"input_tokens":  100,
-		"output_tokens": 50,
+	usage := Usage{
+		InputTokens:  100,
+		OutputTokens: 50,
 	}
 	result := "Task completed"
 

@@ -98,10 +98,12 @@ func (p *Parser) ParseMessage(data map[string]any) (shared.Message, error) {
 	case shared.MessageTypeRateLimitEvent:
 		return p.parseRateLimitEventMessage(data)
 	default:
-		return nil, shared.NewMessageParseError(
-			fmt.Sprintf("unknown message type: %s", msgType),
-			data,
-		)
+		// Unknown types are preserved as RawMessage so consumers can
+		// inspect future CLI message types without SDK upgrades.
+		return &shared.RawMessage{
+			MessageType: msgType,
+			Data:        data,
+		}, nil
 	}
 }
 
@@ -259,9 +261,24 @@ func (p *Parser) parseAssistantMessage(data map[string]any) (*shared.AssistantMe
 		parentToolUseID = &ptid
 	}
 
+	// Parse optional per-turn usage (Python PR #685).
+	var usagePtr *shared.Usage
+	if usageRaw, ok := messageData["usage"].(map[string]any); ok {
+		u := parseUsage(usageRaw)
+		usagePtr = &u
+	}
+
+	// Parse optional stop_reason from the nested message object.
+	var stopReasonPtr *string
+	if sr, ok := messageData["stop_reason"].(string); ok {
+		stopReasonPtr = &sr
+	}
+
 	return &shared.AssistantMessage{
 		Content:         blocks,
 		Model:           model,
+		Usage:           usagePtr,
+		StopReason:      stopReasonPtr,
 		Error:           errorPtr,
 		ParentToolUseID: parentToolUseID,
 	}, nil
@@ -326,7 +343,8 @@ func (p *Parser) parseResultMessage(data map[string]any) (*shared.ResultMessage,
 		result.TotalCostUSD = &totalCostUSD
 	}
 
-	if usage, ok := data["usage"].(map[string]any); ok {
+	if usageRaw, ok := data["usage"].(map[string]any); ok {
+		usage := parseUsage(usageRaw)
 		result.Usage = &usage
 	}
 
@@ -528,4 +546,22 @@ func ParseMessages(lines []string) ([]shared.Message, error) {
 	}
 
 	return allMessages, nil
+}
+
+// parseUsage extracts token usage fields from a raw map into a typed Usage struct.
+func parseUsage(m map[string]any) shared.Usage {
+	var u shared.Usage
+	if v, ok := m["input_tokens"].(float64); ok {
+		u.InputTokens = int(v)
+	}
+	if v, ok := m["output_tokens"].(float64); ok {
+		u.OutputTokens = int(v)
+	}
+	if v, ok := m["cache_creation_input_tokens"].(float64); ok {
+		u.CacheCreationInputTokens = int(v)
+	}
+	if v, ok := m["cache_read_input_tokens"].(float64); ok {
+		u.CacheReadInputTokens = int(v)
+	}
+	return u
 }

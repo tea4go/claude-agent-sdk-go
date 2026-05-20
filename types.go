@@ -114,6 +114,14 @@ const (
 	AssistantMessageErrorUnknown        = shared.AssistantMessageErrorUnknown
 )
 
+// Re-export stop reason constants
+const (
+	StopReasonEndTurn      = shared.StopReasonEndTurn
+	StopReasonToolUse      = shared.StopReasonToolUse
+	StopReasonStopSequence = shared.StopReasonStopSequence
+	StopReasonMaxTokens    = shared.StopReasonMaxTokens
+)
+
 // AgentModel represents the model to use for an agent.
 type AgentModel = shared.AgentModel
 
@@ -150,6 +158,14 @@ type Transport interface {
 
 // RawControlMessage wraps raw control protocol messages for passthrough.
 type RawControlMessage = shared.RawControlMessage
+
+// RawMessage represents a CLI message with an unrecognized type field.
+// Preserves the original type and all data for forward-compatible inspection.
+type RawMessage = shared.RawMessage
+
+// Usage represents token usage information from the Claude API.
+// Present on AssistantMessage (per-turn) and ResultMessage (conversation total).
+type Usage = shared.Usage
 
 // StreamEvent represents a partial message update during streaming.
 type StreamEvent = shared.StreamEvent
