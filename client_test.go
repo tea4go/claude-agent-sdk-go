@@ -1095,6 +1095,8 @@ type clientMockTransport struct {
 	rewindFilesError       error
 	getMcpStatusError      error
 	getMcpStatusResponse   *McpStatusResponse
+	getSlashCommandsError  error
+	getSlashCommandsResp   []SlashCommand
 }
 
 func (c *clientMockTransport) Connect(ctx context.Context) error {
@@ -1292,6 +1294,18 @@ func (c *clientMockTransport) GetMcpStatus(_ context.Context) (*McpStatusRespons
 	return &McpStatusResponse{McpServers: []McpServerStatus{}}, nil
 }
 
+func (c *clientMockTransport) GetSlashCommands(_ context.Context) ([]SlashCommand, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.getSlashCommandsError != nil {
+		return nil, c.getSlashCommandsError
+	}
+	if c.getSlashCommandsResp != nil {
+		return c.getSlashCommandsResp, nil
+	}
+	return []SlashCommand{}, nil
+}
+
 // Streamlined Mock Transport Options - reduced from 11 to 6 essential functions
 type ClientMockTransportOption func(*clientMockTransport)
 
@@ -1333,6 +1347,14 @@ func WithClientGetMcpStatusError(err error) ClientMockTransportOption {
 
 func WithClientGetMcpStatusResponse(resp *McpStatusResponse) ClientMockTransportOption {
 	return func(t *clientMockTransport) { t.getMcpStatusResponse = resp }
+}
+
+func WithClientGetSlashCommandsError(err error) ClientMockTransportOption {
+	return func(t *clientMockTransport) { t.getSlashCommandsError = err }
+}
+
+func WithClientGetSlashCommandsResponse(resp []SlashCommand) ClientMockTransportOption {
+	return func(t *clientMockTransport) { t.getSlashCommandsResp = resp }
 }
 
 // Factory Functions - streamlined creation methods
@@ -3019,6 +3041,111 @@ func testClientGetMcpStatusTransportError(t *testing.T) {
 		t.Fatal("expected error from transport, got nil")
 	}
 	if !strings.Contains(err.Error(), "transport mcp status error") {
+		t.Errorf("expected transport error, got: %v", err)
+	}
+}
+
+// TestClientGetSlashCommands tests GetSlashCommands delegation through the client layer.
+func TestClientGetSlashCommands(t *testing.T) {
+	t.Run("success", testClientGetSlashCommandsSuccess)
+	t.Run("not_connected", testClientGetSlashCommandsNotConnected)
+	t.Run("context_cancelled", testClientGetSlashCommandsContextCancelled)
+	t.Run("transport_error", testClientGetSlashCommandsTransportError)
+}
+
+func testClientGetSlashCommandsSuccess(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	resp := []SlashCommand{
+		{Name: "/compact", Description: "Compact the conversation"},
+		{Name: "/clear", Description: "Clear the conversation"},
+	}
+	transport := newClientMockTransportWithOptions(
+		WithClientGetSlashCommandsResponse(resp),
+	)
+	client := setupClientForTest(t, transport)
+	defer disconnectClientSafely(t, client)
+
+	connectClientSafely(ctx, t, client)
+
+	commands, err := client.GetSlashCommands(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(commands))
+	}
+	if commands[0].Name != "/compact" {
+		t.Errorf("expected first command /compact, got %q", commands[0].Name)
+	}
+	if commands[1].Name != "/clear" {
+		t.Errorf("expected second command /clear, got %q", commands[1].Name)
+	}
+}
+
+func testClientGetSlashCommandsNotConnected(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	transport := newClientMockTransport()
+	client := setupClientForTest(t, transport)
+	defer disconnectClientSafely(t, client)
+
+	_, err := client.GetSlashCommands(ctx)
+
+	if err == nil {
+		t.Fatal("expected error when not connected, got nil")
+	}
+	if !strings.Contains(err.Error(), "not connected") {
+		t.Errorf("expected 'not connected' error, got: %v", err)
+	}
+}
+
+func testClientGetSlashCommandsContextCancelled(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	transport := newClientMockTransport()
+	client := setupClientForTest(t, transport)
+	defer disconnectClientSafely(t, client)
+
+	connectClientSafely(ctx, t, client)
+
+	cancel()
+
+	_, err := client.GetSlashCommands(ctx)
+
+	if err == nil {
+		t.Fatal("expected error when context cancelled, got nil")
+	}
+}
+
+func testClientGetSlashCommandsTransportError(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	expectedErr := errors.New("transport slash commands error")
+	transport := newClientMockTransportWithOptions(
+		WithClientGetSlashCommandsError(expectedErr),
+	)
+	client := setupClientForTest(t, transport)
+	defer disconnectClientSafely(t, client)
+
+	connectClientSafely(ctx, t, client)
+
+	_, err := client.GetSlashCommands(ctx)
+
+	if err == nil {
+		t.Fatal("expected error from transport, got nil")
+	}
+	if !strings.Contains(err.Error(), "transport slash commands error") {
 		t.Errorf("expected transport error, got: %v", err)
 	}
 }

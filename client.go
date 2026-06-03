@@ -38,6 +38,9 @@ type Client interface {
 	// GetMcpStatus returns the connection status of all configured MCP servers.
 	// Only works in streaming mode (after Connect()).
 	GetMcpStatus(ctx context.Context) (*McpStatusResponse, error)
+	// GetSlashCommands returns slash commands available in the current session.
+	// Only works in streaming mode (after Connect()).
+	GetSlashCommands(ctx context.Context) ([]SlashCommand, error)
 	GetStreamIssues() []StreamIssue
 	GetStreamStats() StreamStats
 	GetServerInfo(ctx context.Context) (map[string]interface{}, error)
@@ -686,6 +689,25 @@ func (c *ClientImpl) GetMcpStatus(ctx context.Context) (*McpStatusResponse, erro
 	}
 
 	return transport.GetMcpStatus(ctx)
+}
+
+// GetSlashCommands returns slash commands available in the current session.
+// Returns error if not connected or if the control request fails.
+func (c *ClientImpl) GetSlashCommands(ctx context.Context) ([]SlashCommand, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	c.mu.RLock()
+	connected := c.connected
+	transport := c.transport
+	c.mu.RUnlock()
+
+	if !connected || transport == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	return transport.GetSlashCommands(ctx)
 }
 
 // clientIterator implements MessageIterator for client message reception

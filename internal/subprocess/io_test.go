@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tea4go/claude-agent-sdk-go/internal/control"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
@@ -80,6 +81,51 @@ func TestFormatInitError(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func TestParseSlashCommands(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+		want  []control.SlashCommand
+	}{
+		{
+			name:  "string_array_adds_slash_prefix",
+			input: []any{"compact", "/clear"},
+			want: []control.SlashCommand{
+				{Name: "/compact"},
+				{Name: "/clear"},
+			},
+		},
+		{
+			name: "object_array_preserves_description",
+			input: []any{
+				map[string]any{"name": "context", "description": "Show context usage"},
+			},
+			want: []control.SlashCommand{
+				{Name: "/context", Description: "Show context usage"},
+			},
+		},
+		{
+			name:  "missing_field_returns_empty",
+			input: nil,
+			want:  []control.SlashCommand{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSlashCommands(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %d commands, got %d", len(tt.want), len(got))
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("command[%d] = %+v, want %+v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
 }
 
 // TestTransportHandleStdoutErrorPaths tests uncovered handleStdout scenarios

@@ -1,12 +1,16 @@
 // Example 22: Status Display
 //
-// Demonstrates how to build a real-time status display similar to the
+// Demonstrates how to build a real-time status display that mirrors the
 // Claude Code CLI bottom status bar. Shows how to:
 //   - Track token usage (per-turn and cumulative)
-//   - Display cost and duration from the ResultMessage
+//   - Display cost and duration (using local timer for real-time duration)
 //   - Detect rate-limit and error states via RateLimitEventMessage
 //   - Show current activity based on StreamEvent and message types
 //   - Handle unknown message types via RawMessage forward compatibility
+//
+// Output format matches the CLI style:
+//   Processing. (1m 23s • 31.2k in • 2.1k out)
+//   Using tool Glob... (1m 30s • 31.2k in • 2.1k out • thinking)
 //
 // Run with: go run examples/22_status_display/main.go
 
@@ -22,94 +26,162 @@ import (
 	"github.com/tea4go/claude-agent-sdk-go"
 )
 
-// statusTracker accumulates state for the status display.
+// statusTracker accumulates state for the CLI-style status display.
 type statusTracker struct {
-	turns           int
+	startTime       time.Time
 	inputTokens     int
 	outputTokens    int
 	cacheReadTokens int
 	cacheWriteTokens int
 	costUSD         float64
-	durationMs      int
-	apiDurationMs   int
 	currentActivity string
 	isRateLimited   bool
 	rateLimitResets time.Time
 	errors          []string
 	model           string
-	stopReason      string
+	isThinking      bool
+	lastLineLen     int // for clearing previous output
+	done            bool
+	finalDurationMs int
+	finalAPIDurMs   int
 }
 
-func (s *statusTracker) render() {
-	var b strings.Builder
+// formatTokenK formats a token count as X.Xk (matches CLI style).
+func formatTokenK(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	k := float64(n) / 1000.0
+	if k >= 100 {
+		return fmt.Sprintf("%dk", int(k))
+	}
+	return fmt.Sprintf("%.1fk", k)
+}
 
-	// Activity indicator
-	activity := s.currentActivity
-	if activity == "" {
-		activity = "idle"
+// formatElapsed formats elapsed time from startTime (matches CLI style).
+func (s *statusTracker) formatElapsed() string {
+	elapsed := time.Since(s.startTime)
+	sec := int(elapsed.Seconds())
+	if sec < 60 {
+		return fmt.Sprintf("%ds", sec)
+	}
+	m := sec / 60
+	rem := sec % 60
+	return fmt.Sprintf("%dm %ds", m, rem)
+}
+
+// render outputs a single status line, overwriting the previous one.
+// Uses ANSI escape codes to clear the previous line for in-place updates.
+func (s *statusTracker) render() {
+	if s.done {
+		// Final line: just print normally, no overwriting needed
+		fmt.Println(s.formatStatusLine())
+		return
+	}
+
+	line := s.formatStatusLine()
+	// Clear previous line and write new one in-place
+	if s.lastLineLen > 0 {
+		// Move cursor to start of line, clear it, then write new content
+		fmt.Printf("\r\033[K%s", line)
+	} else {
+		fmt.Print(line)
+	}
+	s.lastLineLen = len(line)
+}
+
+// formatStatusLine builds a CLI-style status string like:
+//   Processing. (1m 23s • 31.2k in • 2.1k out)
+func (s *statusTracker) formatStatusLine() string {
+	var parts []string
+
+	// 1. Activity description (with trailing period, matching CLI style)
+	activity := activityLabel(s.currentActivity, s.isRateLimited, s.isThinking)
+	parts = append(parts, activity)
+
+	// 2. Parenthesized stats
+	var stats []string
+
+	// Duration: always show elapsed time from local timer
+	stats = append(stats, s.formatElapsed())
+
+	// Token counts
+	if s.inputTokens > 0 || s.outputTokens > 0 {
+		tokenStr := fmt.Sprintf("%s in", formatTokenK(s.inputTokens))
+		if s.outputTokens > 0 {
+			tokenStr += fmt.Sprintf(" • %s out", formatTokenK(s.outputTokens))
+		}
+		stats = append(stats, tokenStr)
+	}
+
+	// Cache tokens (when present)
+	if s.cacheReadTokens > 0 {
+		stats = append(stats, fmt.Sprintf("%s cache read", formatTokenK(s.cacheReadTokens)))
+	}
+
+	// Cost
+	if s.costUSD > 0 {
+		stats = append(stats, fmt.Sprintf("$%.2f", s.costUSD))
 	}
 
 	// Rate limit warning
 	if s.isRateLimited {
-		until := ""
+		warning := "rate limited"
 		if !s.rateLimitResets.IsZero() {
-			until = fmt.Sprintf(" (resets %s)", s.rateLimitResets.Format("15:04:05"))
+			warning += fmt.Sprintf(" (resets %s)", s.rateLimitResets.Format("15:04:05"))
 		}
-		fmt.Fprintf(&b, "RATE LIMITED%s | ", until)
+		stats = append(stats, warning)
 	}
 
-	// Core status line
-	fmt.Fprintf(&b, "%s", activity)
-
-	if s.model != "" {
-		fmt.Fprintf(&b, " | %s", s.model)
+	// Thinking indicator
+	if s.isThinking {
+		stats = append(stats, "thinking")
 	}
 
-	if s.turns > 0 {
-		fmt.Fprintf(&b, " | turn %d", s.turns)
-	}
-
-	if s.inputTokens > 0 || s.outputTokens > 0 {
-		fmt.Fprintf(&b, " | tokens: %dk in / %dk out",
-			s.inputTokens/1000, s.outputTokens/1000)
-	}
-
-	if s.cacheReadTokens > 0 || s.cacheWriteTokens > 0 {
-		fmt.Fprintf(&b, " cache:%dk/%dk",
-			s.cacheReadTokens/1000, s.cacheWriteTokens/1000)
-	}
-
-	if s.costUSD > 0 {
-		fmt.Fprintf(&b, " | $%.4f", s.costUSD)
-	}
-
-	if s.durationMs > 0 {
-		fmt.Fprintf(&b, " | %s", formatDuration(s.durationMs))
-	}
-
-	if s.stopReason != "" {
-		fmt.Fprintf(&b, " | stop: %s", s.stopReason)
-	}
-
+	// Error indicator
 	if len(s.errors) > 0 {
-		fmt.Fprintf(&b, " | ERRORS: %s", strings.Join(s.errors, "; "))
+		stats = append(stats, fmt.Sprintf("error: %s", strings.Join(s.errors, "; ")))
 	}
 
-	fmt.Fprintf(&b, "\n")
-	fmt.Print(b.String())
+	if len(stats) > 0 {
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(stats, " • ")))
+	}
+
+	return strings.Join(parts, " ")
 }
 
-func formatDuration(ms int) string {
-	if ms < 1000 {
-		return fmt.Sprintf("%dms", ms)
+// activityLabel converts internal activity state to a CLI-style label.
+func activityLabel(activity string, rateLimited bool, thinking bool) string {
+	if rateLimited {
+		return "Retrying..."
 	}
-	s := ms / 1000
-	if s < 60 {
-		return fmt.Sprintf("%ds", s)
+	if thinking {
+		return "Thinking..."
 	}
-	m := s / 60
-	s = s % 60
-	return fmt.Sprintf("%dm%ds", m, s)
+
+	switch activity {
+	case "calling_tool":
+		return "Processing."
+	case "tool_result":
+		return "Processing."
+	case "generating":
+		return "Processing."
+	case "writing":
+		return "Writing."
+	case "init":
+		return "Starting."
+	case "done":
+		return "Complete."
+	case "":
+		return "Waiting."
+	default:
+		// Tool-specific activity (e.g. "Glob", "Read")
+		if strings.HasPrefix(activity, "tool:") {
+			toolName := strings.TrimPrefix(activity, "tool:")
+			return fmt.Sprintf("Using %s...", toolName)
+		}
+		return fmt.Sprintf("%s.", activity)
+	}
 }
 
 func main() {
@@ -118,14 +190,14 @@ func main() {
 		prompt = strings.Join(os.Args[1:], " ")
 	}
 
-	tracker := &statusTracker{}
+	tracker := &statusTracker{
+		startTime: time.Now(),
+	}
 
 	opts := []claudecode.Option{
 		claudecode.WithAllowedTools("Read", "Glob", "Grep"),
 	}
 
-	// Enable partial streaming so we get StreamEvent messages for real-time
-	// activity tracking.
 	ctx := context.Background()
 
 	iter, err := claudecode.Query(ctx, prompt, opts...)
@@ -134,6 +206,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer iter.Close()
+
+	fmt.Println() // blank line before status starts
 
 	for {
 		msg, err := iter.Next(ctx)
@@ -145,25 +219,23 @@ func main() {
 			break
 		}
 
-		// Type-switch on all message types the SDK can produce.
 		switch m := msg.(type) {
 		case *claudecode.AssistantMessage:
-			tracker.turns++
+			tracker.isThinking = false
 			tracker.model = m.Model
-			tracker.currentActivity = "generating response"
-			tracker.stopReason = m.GetStopReason()
 
 			if m.IsToolUse() {
-				// Find the tool being used for more specific status
 				for _, block := range m.Content {
 					if tu, ok := block.(*claudecode.ToolUseBlock); ok {
-						tracker.currentActivity = fmt.Sprintf("using tool: %s", tu.Name)
+						tracker.currentActivity = "tool:" + tu.Name
 						break
 					}
 				}
+			} else {
+				tracker.currentActivity = "generating"
 			}
 
-			// Accumulate per-turn token usage if available
+			// Accumulate per-turn token usage
 			if m.HasUsage() {
 				tracker.inputTokens += m.Usage.InputTokens
 				tracker.outputTokens += m.Usage.OutputTokens
@@ -173,31 +245,39 @@ func main() {
 
 			if m.IsRateLimited() {
 				tracker.isRateLimited = true
-				tracker.currentActivity = "rate limited - retrying"
-			} else if m.HasError() {
-				tracker.errors = append(tracker.errors, string(m.GetError()))
+			} else {
+				tracker.isRateLimited = false
+				if m.HasError() {
+					tracker.errors = append(tracker.errors, string(m.GetError()))
+				}
 			}
 
 		case *claudecode.UserMessage:
-			tracker.currentActivity = "processing tool result"
+			tracker.currentActivity = "tool_result"
 
 		case *claudecode.SystemMessage:
-			// System messages carry subtypes like "init", "result"
-			// that indicate the current phase.
-			tracker.currentActivity = fmt.Sprintf("system: %s", m.Subtype)
+			// Map system subtypes to human-readable activities
+			switch m.Subtype {
+			case "init":
+				tracker.currentActivity = "init"
+			case "api_retry":
+				tracker.isRateLimited = true
+			default:
+				// Other system subtypes (hook_started, hook_response, etc.)
+				// are internal protocol messages - don't change the visible activity
+			}
 
 		case *claudecode.ResultMessage:
-			// Final summary - this is the authoritative cost/duration.
+			tracker.done = true
 			tracker.currentActivity = "done"
-			tracker.durationMs = m.DurationMs
-			tracker.apiDurationMs = m.DurationAPIMs
+			tracker.finalDurationMs = m.DurationMs
+			tracker.finalAPIDurMs = m.DurationAPIMs
 
 			if m.TotalCostUSD != nil {
 				tracker.costUSD = *m.TotalCostUSD
 			}
 
-			// ResultMessage.Usage is the conversation-level total;
-			// prefer it over our accumulated per-turn counts.
+			// ResultMessage.Usage is the authoritative conversation-level total
 			if m.HasUsage() {
 				tracker.inputTokens = m.Usage.InputTokens
 				tracker.outputTokens = m.Usage.OutputTokens
@@ -213,7 +293,6 @@ func main() {
 			}
 
 		case *claudecode.StreamEvent:
-			// Partial streaming events provide fine-grained activity tracking.
 			eventType, _ := m.Event["type"].(string)
 			switch eventType {
 			case claudecode.StreamEventTypeContentBlockStart:
@@ -222,33 +301,24 @@ func main() {
 						switch t {
 						case claudecode.ContentBlockTypeToolUse:
 							if name, ok := cb["name"].(string); ok {
-								tracker.currentActivity = fmt.Sprintf("calling tool: %s", name)
+								tracker.currentActivity = "tool:" + name
+								tracker.isThinking = false
 							}
 						case claudecode.ContentBlockTypeThinking:
-							tracker.currentActivity = "thinking"
+							tracker.isThinking = true
+							tracker.currentActivity = "generating"
 						case claudecode.ContentBlockTypeText:
-							tracker.currentActivity = "writing response"
+							tracker.currentActivity = "writing"
+							tracker.isThinking = false
 						}
 					}
 				}
-			case claudecode.StreamEventTypeContentBlockDelta:
-				// Delta events are very frequent; no need to update status on each.
-			case claudecode.StreamEventTypeMessageStart:
-				tracker.currentActivity = "starting message"
 			case claudecode.StreamEventTypeMessageDelta:
-				// message_delta can carry updated Usage and StopReason.
-				if delta, ok := m.Event["delta"].(map[string]any); ok {
-					if sr, ok := delta["stop_reason"].(string); ok {
-						tracker.stopReason = sr
-					}
-				}
 				if usageRaw, ok := m.Event["usage"].(map[string]any); ok {
 					if v, ok := usageRaw["output_tokens"].(float64); ok {
 						tracker.outputTokens = int(v)
 					}
 				}
-			case claudecode.StreamEventTypeMessageStop:
-				tracker.currentActivity = "message complete"
 			}
 
 		case *claudecode.RateLimitEventMessage:
@@ -256,22 +326,41 @@ func main() {
 				tracker.isRateLimited = false
 			} else {
 				tracker.isRateLimited = true
-				tracker.currentActivity = "rate limited - retrying"
 				if m.RateLimitInfo.ResetsAt > 0 {
 					tracker.rateLimitResets = time.Unix(m.RateLimitInfo.ResetsAt, 0)
 				}
 			}
 
 		case *claudecode.RawMessage:
-			// Forward-compatible: handle unknown message types from future
-			// CLI versions without SDK upgrades.
-			fmt.Printf("[unknown type: %s]\n", m.MessageType)
+			// Forward-compatible: silently handle unknown types
 		}
 
 		tracker.render()
 	}
 
-	// Final summary
+	// Clear the in-place status line before printing the final summary
+	if tracker.lastLineLen > 0 {
+		fmt.Printf("\r\033[K")
+	}
+
 	fmt.Println("\n--- Final Summary ---")
-	tracker.render()
+	fmt.Println(tracker.formatStatusLine())
+	if tracker.finalDurationMs > 0 {
+		fmt.Printf("  Total duration: %s (API: %s)\n",
+			formatDuration(tracker.finalDurationMs),
+			formatDuration(tracker.finalAPIDurMs))
+	}
+}
+
+func formatDuration(ms int) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	s := ms / 1000
+	if s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	m := s / 60
+	s = s % 60
+	return fmt.Sprintf("%dm %ds", m, s)
 }

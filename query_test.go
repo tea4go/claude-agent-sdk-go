@@ -953,6 +953,10 @@ func (q *queryMockTransport) GetMcpStatus(_ context.Context) (*McpStatusResponse
 	return &McpStatusResponse{}, nil
 }
 
+func (q *queryMockTransport) GetSlashCommands(_ context.Context) ([]SlashCommand, error) {
+	return []SlashCommand{}, nil
+}
+
 func (q *queryMockTransport) Close() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()

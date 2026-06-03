@@ -105,6 +105,15 @@ func (t *Transport) cleanup() {
 		t.mcpConfigFile = nil
 	}
 
+	t.cleanupSkillRegistryDirs()
+
 	// Reset state
 	t.cmd = nil
+}
+
+func (t *Transport) cleanupSkillRegistryDirs() {
+	for _, dir := range t.skillRegistryDirs {
+		_ = os.RemoveAll(dir)
+	}
+	t.skillRegistryDirs = nil
 }

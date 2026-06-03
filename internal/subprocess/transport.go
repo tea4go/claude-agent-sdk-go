@@ -48,7 +48,8 @@ type Transport struct {
 	stderrPipe io.ReadCloser // Pipe for callback-based stderr handling
 
 	// Temporary files (cleaned up on Close)
-	mcpConfigFile *os.File // Temporary MCP config file
+	mcpConfigFile     *os.File // Temporary MCP config file
+	skillRegistryDirs []string // Temporary Skill registry plugin wrapper dirs
 
 	// Message parsing
 	parser *parser.Parser
@@ -63,6 +64,11 @@ type Transport struct {
 	// Control protocol (for streaming mode only)
 	protocol        *control.Protocol
 	protocolAdapter *ProtocolAdapter
+
+	// Slash commands discovered from the system/init message.
+	slashCommands          []control.SlashCommand
+	slashCommandsReady     chan struct{}
+	slashCommandsReadyOnce sync.Once
 
 	// Control and cleanup
 	ctx    context.Context
@@ -119,8 +125,8 @@ func (t *Transport) Connect(ctx context.Context) error {
 		return fmt.Errorf("transport already connected")
 	}
 
-	// Generate MCP config file if McpServers are specified
-	opts, err := t.prepareMcpConfig()
+	// Generate temporary plugin wrappers and MCP config files if requested.
+	opts, err := t.prepareRuntimeOptions()
 	if err != nil {
 		return err
 	}
@@ -170,6 +176,9 @@ func (t *Transport) Connect(ctx context.Context) error {
 	// Initialize channels
 	t.msgChan = make(chan shared.Message, channelBufferSize)
 	t.errChan = make(chan error, channelBufferSize)
+	t.slashCommands = nil
+	t.slashCommandsReady = make(chan struct{})
+	t.slashCommandsReadyOnce = sync.Once{}
 
 	// Start I/O handling goroutines
 	t.wg.Add(1)

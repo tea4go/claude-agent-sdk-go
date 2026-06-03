@@ -152,6 +152,8 @@ type Transport interface {
 	RewindFiles(ctx context.Context, userMessageID string) error
 	// GetMcpStatus returns the connection status of all configured MCP servers.
 	GetMcpStatus(ctx context.Context) (*McpStatusResponse, error)
+	// GetSlashCommands returns slash commands available in the current session.
+	GetSlashCommands(ctx context.Context) ([]SlashCommand, error)
 	Close() error
 	GetValidator() *StreamValidator
 }
@@ -237,6 +239,9 @@ type McpServerStatus = control.McpServerStatus
 
 // McpStatusResponse is the response payload for a GetMcpStatus request.
 type McpStatusResponse = control.McpStatusResponse
+
+// SlashCommand describes a CLI slash command suitable for input suggestions.
+type SlashCommand = control.SlashCommand
 
 // ControlProtocol manages bidirectional control communication with CLI.
 type ControlProtocol = control.Protocol

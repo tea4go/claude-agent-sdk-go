@@ -703,6 +703,18 @@ func TestTransportControlProtocolIntegration(t *testing.T) {
 			errSubstr: "one-shot mode",
 		},
 		{
+			name: "GetSlashCommands_requires_streaming_mode",
+			setup: func() *Transport {
+				return NewWithPrompt(newTransportMockCLI(), &shared.Options{}, "test prompt")
+			},
+			operation: func(ctx context.Context, t *Transport) error {
+				_, err := t.GetSlashCommands(ctx)
+				return err
+			},
+			wantErr:   true,
+			errSubstr: "one-shot mode",
+		},
+		{
 			name: "SetModel_requires_connection",
 			setup: func() *Transport {
 				return setupTransportForTest(t, newTransportMockCLI())
@@ -723,6 +735,18 @@ func TestTransportControlProtocolIntegration(t *testing.T) {
 			operation: func(ctx context.Context, t *Transport) error {
 				// Don't connect first
 				return t.SetPermissionMode(ctx, "accept_edits")
+			},
+			wantErr:   true,
+			errSubstr: "not connected",
+		},
+		{
+			name: "GetSlashCommands_requires_connection",
+			setup: func() *Transport {
+				return setupTransportForTest(t, newTransportMockCLI())
+			},
+			operation: func(ctx context.Context, t *Transport) error {
+				_, err := t.GetSlashCommands(ctx)
+				return err
 			},
 			wantErr:   true,
 			errSubstr: "not connected",
@@ -799,6 +823,33 @@ func TestTransportControlProtocolIntegration(t *testing.T) {
 	}
 }
 
+func TestTransportGetSlashCommandsFromSystemInit(t *testing.T) {
+	if runtime.GOOS == windowsOS {
+		t.Skip("Skipped on Windows: batch script quoting is too limited for slash_commands JSON")
+	}
+
+	ctx, cancel := setupTransportTestContext(t, 10*time.Second)
+	defer cancel()
+
+	transport := setupTransportForTest(t, newTransportMockCLIWithSlashCommands())
+	defer disconnectTransportSafely(t, transport)
+
+	connectTransportSafely(ctx, t, transport)
+
+	commands, err := transport.GetSlashCommands(ctx)
+	assertNoTransportError(t, err)
+
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 slash commands, got %d", len(commands))
+	}
+	if commands[0].Name != "/compact" {
+		t.Errorf("expected first command /compact, got %q", commands[0].Name)
+	}
+	if commands[1].Name != "/clear" {
+		t.Errorf("expected second command /clear, got %q", commands[1].Name)
+	}
+}
+
 // TestTransportControlMessageRouting tests that control messages are properly
 // routed to the protocol and regular messages go to msgChan.
 func TestTransportControlMessageRouting(t *testing.T) {
@@ -839,6 +890,15 @@ func TestTransportControlMessageRouting(t *testing.T) {
 			return
 		}
 	}
+}
+
+func newTransportMockCLIWithSlashCommands() string {
+	script := `#!/bin/bash
+if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
+echo '{"type":"system","subtype":"init","slash_commands":["compact","/clear"]}'
+sleep 0.5
+`
+	return createTransportTempScript(script, "")
 }
 
 // newTransportMockCLIWithControlProtocol creates a mock CLI that supports control protocol.

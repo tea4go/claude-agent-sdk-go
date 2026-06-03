@@ -54,6 +54,10 @@ type SdkPluginType = shared.SdkPluginType
 // SdkPluginConfig represents a plugin configuration.
 type SdkPluginConfig = shared.SdkPluginConfig
 
+// SkillRegistryConfig represents an external directory of Skills that should be
+// exposed through a temporary local plugin wrapper.
+type SkillRegistryConfig = shared.SkillRegistryConfig
+
 // OutputFormat specifies the format for structured output.
 type OutputFormat = shared.OutputFormat
 
@@ -493,6 +497,33 @@ func WithLocalPlugin(path string) Option {
 		o.Plugins = append(o.Plugins, SdkPluginConfig{
 			Type: SdkPluginTypeLocal,
 			Path: path,
+		})
+	}
+}
+
+// WithSkillRegistry exposes selected Skills from an external registry
+// directory. The registry root must contain one subdirectory per Skill, each
+// with a SKILL.md file. The SDK presents the selected Skills to Claude CLI via
+// a temporary local plugin wrapper without copying them into the project or
+// user ~/.claude directory.
+func WithSkillRegistry(root string, names ...string) Option {
+	return func(o *Options) {
+		selected := append([]string(nil), names...)
+		o.SkillRegistries = append(o.SkillRegistries, SkillRegistryConfig{
+			Root:  root,
+			Names: selected,
+		})
+	}
+}
+
+// WithSkillRegistryAll exposes every direct child Skill in an external
+// registry directory. A child directory is considered a Skill when it contains
+// SKILL.md.
+func WithSkillRegistryAll(root string) Option {
+	return func(o *Options) {
+		o.SkillRegistries = append(o.SkillRegistries, SkillRegistryConfig{
+			Root:  root,
+			Names: []string{},
 		})
 	}
 }

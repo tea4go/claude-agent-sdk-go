@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/tea4go/claude-agent-sdk-go/internal/control"
 	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
@@ -79,6 +80,7 @@ func (t *Transport) handleStdout() {
 
 			// Track regular message for stream validation
 			t.validator.TrackMessage(msg)
+			t.cacheSlashCommands(msg)
 
 			select {
 			case t.msgChan <- msg:
@@ -110,6 +112,63 @@ func (t *Transport) handleStdout() {
 		case <-t.ctx.Done():
 		}
 	}
+}
+
+func (t *Transport) cacheSlashCommands(msg shared.Message) {
+	systemMsg, ok := msg.(*shared.SystemMessage)
+	if !ok || systemMsg.Subtype != "init" {
+		return
+	}
+
+	commands := parseSlashCommands(systemMsg.Data["slash_commands"])
+	t.mu.Lock()
+	t.slashCommands = commands
+	t.mu.Unlock()
+	t.slashCommandsReadyOnce.Do(func() {
+		close(t.slashCommandsReady)
+	})
+}
+
+func parseSlashCommands(value any) []control.SlashCommand {
+	items, ok := value.([]any)
+	if !ok {
+		if strings, ok := value.([]string); ok {
+			return slashCommandsFromNames(strings)
+		}
+		return []control.SlashCommand{}
+	}
+
+	commands := make([]control.SlashCommand, 0, len(items))
+	for _, item := range items {
+		switch typed := item.(type) {
+		case string:
+			commands = append(commands, control.SlashCommand{Name: normalizeSlashCommandName(typed)})
+		case map[string]any:
+			if name, ok := typed["name"].(string); ok && name != "" {
+				command := control.SlashCommand{Name: normalizeSlashCommandName(name)}
+				if desc, ok := typed["description"].(string); ok {
+					command.Description = desc
+				}
+				commands = append(commands, command)
+			}
+		}
+	}
+	return commands
+}
+
+func slashCommandsFromNames(names []string) []control.SlashCommand {
+	commands := make([]control.SlashCommand, 0, len(names))
+	for _, name := range names {
+		commands = append(commands, control.SlashCommand{Name: normalizeSlashCommandName(name)})
+	}
+	return commands
+}
+
+func normalizeSlashCommandName(name string) string {
+	if name == "" || strings.HasPrefix(name, "/") {
+		return name
+	}
+	return "/" + name
 }
 
 // handleStderrCallback processes stderr in a separate goroutine.

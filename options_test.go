@@ -880,6 +880,9 @@ func (m *mockTransportForOptions) RewindFiles(_ context.Context, _ string) error
 func (m *mockTransportForOptions) GetMcpStatus(_ context.Context) (*McpStatusResponse, error) {
 	return &McpStatusResponse{}, nil
 }
+func (m *mockTransportForOptions) GetSlashCommands(_ context.Context) ([]SlashCommand, error) {
+	return []SlashCommand{}, nil
+}
 func (m *mockTransportForOptions) Close() error                   { return nil }
 func (m *mockTransportForOptions) GetValidator() *StreamValidator { return &StreamValidator{} }
 
@@ -1679,6 +1682,42 @@ func TestWithSkillsOption(t *testing.T) {
 				assertOptionsStringSlice(t, got, want, "Skills")
 			}
 		})
+	}
+}
+
+func TestWithSkillRegistryOption(t *testing.T) {
+	options := NewOptions(WithSkillRegistry("/skills/root", "compress", "validate-json"))
+
+	if len(options.SkillRegistries) != 1 {
+		t.Fatalf("expected 1 skill registry, got %d", len(options.SkillRegistries))
+	}
+
+	registry := options.SkillRegistries[0]
+	if registry.Root != "/skills/root" {
+		t.Fatalf("expected root %q, got %q", "/skills/root", registry.Root)
+	}
+	assertOptionsStringSlice(t, registry.Names, []string{"compress", "validate-json"}, "SkillRegistry.Names")
+	if registry.PluginName != "" {
+		t.Fatalf("expected default plugin name to be empty before transport preparation, got %q", registry.PluginName)
+	}
+}
+
+func TestWithSkillRegistryAllOption(t *testing.T) {
+	options := NewOptions(WithSkillRegistryAll("/skills/root"))
+
+	if len(options.SkillRegistries) != 1 {
+		t.Fatalf("expected 1 skill registry, got %d", len(options.SkillRegistries))
+	}
+
+	registry := options.SkillRegistries[0]
+	if registry.Root != "/skills/root" {
+		t.Fatalf("expected root %q, got %q", "/skills/root", registry.Root)
+	}
+	if registry.Names == nil {
+		t.Fatal("expected empty non-nil names slice for registry-all")
+	}
+	if len(registry.Names) != 0 {
+		t.Fatalf("expected no explicit names, got %v", registry.Names)
 	}
 }
 

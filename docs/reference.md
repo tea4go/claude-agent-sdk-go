@@ -911,6 +911,34 @@ Add a local plugin by path.
 func WithLocalPlugin(path string) Option
 ```
 
+#### `WithSkillRegistry()`
+
+Expose selected Skills from an external registry directory through a temporary
+local plugin wrapper.
+
+```go
+func WithSkillRegistry(root string, names ...string) Option
+```
+
+```go
+claudecode.Query(ctx, prompt,
+    claudecode.WithSkillRegistry(
+        "/Users/zhangym/.cc-switch/skills",
+        "zym-skills",
+        "baoyu-compress-image",
+    ),
+)
+```
+
+#### `WithSkillRegistryAll()`
+
+Expose every direct child directory under a registry root that contains
+`SKILL.md`.
+
+```go
+func WithSkillRegistryAll(root string) Option
+```
+
 ### Sandbox Options
 
 #### `WithSandbox()`

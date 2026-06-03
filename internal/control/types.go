@@ -255,6 +255,12 @@ func NewGetMcpStatusRequest() GetMcpStatusRequest {
 	return GetMcpStatusRequest{Subtype: SubtypeGetMcpStatus}
 }
 
+// SlashCommand describes a CLI slash command suitable for input suggestions.
+type SlashCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // McpServerConnectionStatus represents the connection state of an MCP server.
 type McpServerConnectionStatus string
 

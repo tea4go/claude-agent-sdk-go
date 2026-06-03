@@ -112,6 +112,19 @@ type SdkPluginConfig struct {
 	Path string `json:"path"`
 }
 
+// SkillRegistryConfig configures an external directory containing Skill
+// directories. Each selected Skill directory is exposed to Claude CLI through a
+// temporary local plugin wrapper.
+type SkillRegistryConfig struct {
+	// Root is the filesystem directory containing one subdirectory per Skill.
+	Root string `json:"root"`
+	// Names is the list of Skill directory names to expose. An empty list means
+	// expose every direct child directory that contains SKILL.md.
+	Names []string `json:"names,omitempty"`
+	// PluginName is the generated local plugin name used for scoped Skill tools.
+	PluginName string `json:"plugin_name,omitempty"`
+}
+
 // OutputFormat specifies the format for structured output.
 // Wire format: {"type": "json_schema", "schema": {...}}
 type OutputFormat struct {
@@ -218,6 +231,10 @@ type Options struct {
 
 	// Plugin Configurations
 	Plugins []SdkPluginConfig `json:"plugins,omitempty"`
+
+	// SkillRegistries configures external directories of Skills to expose via
+	// temporary local plugin wrappers.
+	SkillRegistries []SkillRegistryConfig `json:"skill_registries,omitempty"`
 
 	// Extensibility
 	ExtraArgs map[string]*string `json:"extra_args,omitempty"`

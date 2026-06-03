@@ -114,6 +114,14 @@ go run main.go
 # 20 - Debugging and diagnostics
 cd examples/20_debugging_and_diagnostics
 go run main.go
+
+# 23 - External Skill registry
+cd examples/23_skill_registry
+go run main.go
+
+# 24 - Slash command suggestions
+cd examples/24_slash_commands
+go run main.go
 ```
 
 ## Quick Test Example
@@ -279,6 +287,16 @@ func main() {
 - **Concepts**: Debug output, environment config, health monitoring
 - **Features**: WithDebugWriter(), WithStderrCallback(), GetServerInfo()
 - **Time**: 15 minutes
+
+#### `23_skill_registry/` - External Skill Registry
+- **Concepts**: Loading selected Skills from a shared registry directory
+- **Features**: WithSkillRegistry(), temporary plugin wrapper, scoped Skill tools
+- **Time**: 10 minutes
+
+#### `24_slash_commands/` - Slash Command Suggestions
+- **Concepts**: Native slash command discovery, frontend input suggestions
+- **Features**: DiscoverSlashCommands(), SlashCommand
+- **Time**: 5 minutes
 
 ## Common Patterns
 
