@@ -1,4 +1,11 @@
 {
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "cr_8bd191b7c65d1b1eab40f87a1c2d86307a3e9601effc2f52ffc1568291f8b025",
+    "ANTHROPIC_BASE_URL": "http://10.88.16.66:3000/api",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.1",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+    "ANTHROPIC_MODEL": "glm-5.1"
+  },
   "permissions": {
     "allow": [
       "Bash(go fmt:*)",
@@ -22,7 +29,7 @@
       "Bash(go build:*)",
       "Bash(timeout:*)"
     ],
-    "deny": [],
-    "ask": []
+    "ask": [],
+    "deny": []
   }
 }

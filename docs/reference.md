@@ -914,7 +914,11 @@ func WithLocalPlugin(path string) Option
 #### `WithSkillRegistry()`
 
 Expose selected Skills from an external registry directory through a temporary
-local plugin wrapper.
+local plugin wrapper. By itself, this does not add `--allowed-tools`, so
+existing user and project Skills keep their normal availability. Use
+`WithSkillsList()`, `WithSkillsAll()`, `WithSkillsDisabled()`, or
+`WithAllowedTools()` alongside it when you want an explicit Skill allowlist; in
+that mode, selected registry Skills are appended to the same allowlist.
 
 ```go
 func WithSkillRegistry(root string, names ...string) Option
@@ -927,6 +931,7 @@ claudecode.Query(ctx, prompt,
         "zym-skills",
         "baoyu-compress-image",
     ),
+    claudecode.WithSkillsList("project-review"),
 )
 ```
 

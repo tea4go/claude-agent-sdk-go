@@ -343,6 +343,7 @@ func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Opt
 	optsCopy := *options
 	optsCopy.Plugins = append([]shared.SdkPluginConfig(nil), options.Plugins...)
 	optsCopy.AllowedTools = append([]string(nil), options.AllowedTools...)
+	shouldExtendAllowedTools := shouldExtendSkillAllowedTools(options)
 
 	for i, registry := range options.SkillRegistries {
 		pluginName := registry.PluginName
@@ -369,20 +370,26 @@ func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Opt
 			Type: shared.SdkPluginTypeLocal,
 			Path: pluginDir,
 		})
-		for _, name := range names {
-			skillName, err := readSkillName(registry.Root, name)
-			if err != nil {
-				t.cleanupSkillRegistryDirs()
-				return nil, err
-			}
-			tool := fmt.Sprintf("Skill(%s:%s)", pluginName, skillName)
-			if !containsString(optsCopy.AllowedTools, tool) {
-				optsCopy.AllowedTools = append(optsCopy.AllowedTools, tool)
+		if shouldExtendAllowedTools {
+			for _, name := range names {
+				skillName, err := readSkillName(registry.Root, name)
+				if err != nil {
+					t.cleanupSkillRegistryDirs()
+					return nil, err
+				}
+				tool := fmt.Sprintf("Skill(%s:%s)", pluginName, skillName)
+				if !containsString(optsCopy.AllowedTools, tool) {
+					optsCopy.AllowedTools = append(optsCopy.AllowedTools, tool)
+				}
 			}
 		}
 	}
 
 	return &optsCopy, nil
+}
+
+func shouldExtendSkillAllowedTools(options *shared.Options) bool {
+	return len(options.AllowedTools) > 0 || options.Skills != nil
 }
 
 func resolveSkillRegistryNames(registry shared.SkillRegistryConfig) ([]string, error) {

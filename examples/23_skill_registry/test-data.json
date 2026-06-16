@@ -1,0 +1,58 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "张三",
+      "email": "zhangsan@example.com",
+      "roles": [
+        "admin",
+        "editor",
+      ],
+      "settings": {
+        "theme": "dark",
+        "notifications": true,
+        "language": "zh-CN"
+      }
+    },
+    {
+      "id": 2,
+      'name': "李四",
+      "email": "lisi@example.com",
+      roles: [
+        "user"
+      ],
+      "settings": {
+        "theme": "light""notifications": false,
+      }
+    }
+  ],
+  "config": {
+    "appName": "测试应用",
+    "version": "1.0.0",
+    "debug": true,
+    "database": {
+      "host": "localhost",
+      "port": 5432,
+      "name": "mydb",
+      "credentials": {
+        "username": "admin",
+        "password": "secret123"
+      }
+    },
+    "features": [
+      "auth",
+      "logging",
+      "cache",
+    ]
+  },
+  "metadata": {
+    "createdAt": "2024-01-15",
+    "updatedAt": "2024-01-20T10:30:00Z",
+    "tags": [
+      "production",
+      "v1",
+      "stable",
+    ]
+  }
+  "status": "active"
+}

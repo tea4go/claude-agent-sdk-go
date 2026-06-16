@@ -225,18 +225,18 @@ func (m *SystemMessage) MarshalJSON() ([]byte, error) {
 
 // ResultMessage represents the final result of a conversation turn.
 type ResultMessage struct {
-	MessageType      string          `json:"type"`
-	Subtype          string          `json:"subtype"`
-	DurationMs       int             `json:"duration_ms"`
-	DurationAPIMs    int             `json:"duration_api_ms"`
-	IsError          bool            `json:"is_error"`
-	Errors           []string        `json:"errors,omitempty"`
-	NumTurns         int             `json:"num_turns"`
-	SessionID        string          `json:"session_id"`
-	TotalCostUSD     *float64        `json:"total_cost_usd,omitempty"`
-	Usage            *Usage          `json:"usage,omitempty"`
-	Result           *string         `json:"result,omitempty"`
-	StructuredOutput any             `json:"structured_output,omitempty"`
+	MessageType      string   `json:"type"`
+	Subtype          string   `json:"subtype"`
+	DurationMs       int      `json:"duration_ms"`
+	DurationAPIMs    int      `json:"duration_api_ms"`
+	IsError          bool     `json:"is_error"`
+	Errors           []string `json:"errors,omitempty"`
+	NumTurns         int      `json:"num_turns"`
+	SessionID        string   `json:"session_id"`
+	TotalCostUSD     *float64 `json:"total_cost_usd,omitempty"`
+	Usage            *Usage   `json:"usage,omitempty"`
+	Result           *string  `json:"result,omitempty"`
+	StructuredOutput any      `json:"structured_output,omitempty"`
 }
 
 // Type returns the message type for ResultMessage.
@@ -371,7 +371,7 @@ type RateLimitInfo struct {
 // nothing is constrained — most consumers can simply ignore the message
 // unless RateLimitInfo.Status differs from RateLimitStatusAllowed.
 //
-// See https://github.com/severity1/claude-agent-sdk-go/issues/126.
+// See https://github.com/tea4go/claude-agent-sdk-go/issues/126.
 type RateLimitEventMessage struct {
 	MessageType   string        `json:"type"`
 	RateLimitInfo RateLimitInfo `json:"rate_limit_info"`

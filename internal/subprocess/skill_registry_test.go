@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
@@ -36,8 +37,9 @@ func TestPrepareSkillRegistriesCreatesPluginWrapper(t *testing.T) {
 	assertGeneratedPluginManifest(t, pluginDir, "sdk-skill-registry")
 	assertSkillLink(t, pluginDir, registryRoot, "compress")
 	assertSkillLink(t, pluginDir, registryRoot, "validate-json")
-	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:compress)")
-	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:validate-json)")
+	if len(opts.AllowedTools) != 0 {
+		t.Fatalf("expected registry-only configuration not to restrict allowed tools, got %v", opts.AllowedTools)
+	}
 
 	if len(transport.skillRegistryDirs) != 1 {
 		t.Fatalf("expected generated plugin dir to be tracked for cleanup, got %d", len(transport.skillRegistryDirs))
@@ -54,6 +56,7 @@ func TestPrepareSkillRegistriesUsesFrontmatterSkillNameForAllowedTool(t *testing
 	createTestSkillWithFrontmatterName(t, registryRoot, "zym-skills", "find-skills")
 
 	transport := New("echo", &shared.Options{
+		AllowedTools: []string{"Read"},
 		SkillRegistries: []shared.SkillRegistryConfig{
 			{
 				Root:  registryRoot,
@@ -71,6 +74,79 @@ func TestPrepareSkillRegistriesUsesFrontmatterSkillNameForAllowedTool(t *testing
 	assertSkillLink(t, pluginDir, registryRoot, "zym-skills")
 	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:find-skills)")
 	assertNotContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:zym-skills)")
+}
+
+func TestPrepareSkillRegistriesPreservesExistingSkillAllowlist(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkill(t, registryRoot, "compress")
+
+	transport := New("echo", &shared.Options{
+		AllowedTools: []string{"Read", "Skill(project-review)", "Skill"},
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"compress"},
+			},
+		},
+	}, true, "sdk-go")
+
+	opts, err := transport.prepareSkillRegistries(transport.options)
+	if err != nil {
+		t.Fatalf("prepareSkillRegistries error: %v", err)
+	}
+
+	assertContainsString(t, opts.AllowedTools, "Read")
+	assertContainsString(t, opts.AllowedTools, "Skill")
+	assertContainsString(t, opts.AllowedTools, "Skill(project-review)")
+	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:compress)")
+}
+
+func TestRuntimeOptionsCombineRegistryAndConfiguredSkills(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkill(t, registryRoot, "compress")
+
+	transport := New("echo", &shared.Options{
+		Skills: []string{"project-review"},
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"compress"},
+			},
+		},
+	}, true, "sdk-go")
+
+	opts, err := transport.prepareRuntimeOptions()
+	if err != nil {
+		t.Fatalf("prepareRuntimeOptions error: %v", err)
+	}
+	defer transport.cleanup()
+
+	cmd := cli.BuildCommand("claude", opts, true)
+	assertContainsArgs(t, cmd, "--allowed-tools", "Skill(sdk-skill-registry:compress),Skill(project-review)")
+	assertContainsArgs(t, cmd, "--setting-sources", "user,project")
+}
+
+func TestRuntimeOptionsDoNotRestrictSkillsWhenOnlyRegistryConfigured(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkill(t, registryRoot, "compress")
+
+	transport := New("echo", &shared.Options{
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"compress"},
+			},
+		},
+	}, true, "sdk-go")
+
+	opts, err := transport.prepareRuntimeOptions()
+	if err != nil {
+		t.Fatalf("prepareRuntimeOptions error: %v", err)
+	}
+	defer transport.cleanup()
+
+	cmd := cli.BuildCommand("claude", opts, true)
+	assertNotContainsArg(t, cmd, "--allowed-tools")
 }
 
 func TestPrepareSkillRegistriesAllDiscoversSkillDirs(t *testing.T) {
@@ -101,8 +177,9 @@ func TestPrepareSkillRegistriesAllDiscoversSkillDirs(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(pluginDir, "skills", "notes")); !os.IsNotExist(err) {
 		t.Fatalf("expected non-skill directory to be ignored, stat err=%v", err)
 	}
-	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:alpha)")
-	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:beta)")
+	if len(opts.AllowedTools) != 0 {
+		t.Fatalf("expected registry-all configuration not to restrict allowed tools, got %v", opts.AllowedTools)
+	}
 }
 
 func TestPrepareSkillRegistriesRejectsMissingSkill(t *testing.T) {
@@ -194,6 +271,25 @@ func assertContainsString(t *testing.T, values []string, want string) {
 		}
 	}
 	t.Fatalf("expected %v to contain %q", values, want)
+}
+
+func assertContainsArgs(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) && args[i+1] == value {
+			return
+		}
+	}
+	t.Fatalf("expected command to contain %s %s, got %v", flag, value, args)
+}
+
+func assertNotContainsArg(t *testing.T, args []string, unwanted string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == unwanted {
+			t.Fatalf("expected command not to contain %s, got %v", unwanted, args)
+		}
+	}
 }
 
 func assertNotContainsString(t *testing.T, values []string, unwanted string) {
