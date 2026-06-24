@@ -232,6 +232,10 @@ func (t *Transport) copySlashCommands() []control.SlashCommand {
 func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 	var opts []control.ProtocolOption
 
+	if t.options != nil && (len(t.options.Plugins) > 0 || isSkillsList(t.options.Skills)) {
+		opts = append(opts, control.WithSessionConfig(t.options.Plugins, t.options.Skills))
+	}
+
 	// Wire permission callback if configured
 	if t.options != nil && t.options.CanUseTool != nil {
 		// Create adapter that converts between shared.Options (any types)
@@ -285,6 +289,11 @@ func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 	}
 
 	return opts
+}
+
+func isSkillsList(skills any) bool {
+	_, ok := skills.([]string)
+	return ok
 }
 
 // hasSdkMcpServers checks if any SDK MCP servers are configured.

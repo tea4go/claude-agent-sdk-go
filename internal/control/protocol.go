@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 // DefaultInitTimeout is the default timeout for the Initialize handshake.
@@ -58,6 +60,10 @@ type Protocol struct {
 	hookCallbacksMu  sync.RWMutex
 	nextHookCallback int64
 
+	// Session initialization config
+	plugins []shared.SdkPluginConfig
+	skills  *[]string
+
 	// SDK MCP servers for in-process tool handling
 	sdkMcpServers map[string]McpServer
 
@@ -106,6 +112,20 @@ func WithHookCallbacks(callbacks map[string]HookCallback) ProtocolOption {
 func WithSdkMcpServers(servers map[string]McpServer) ProtocolOption {
 	return func(p *Protocol) {
 		p.sdkMcpServers = servers
+	}
+}
+
+// WithSessionConfig forwards session-scoped plugin and Skill filters during
+// the streaming initialize handshake.
+func WithSessionConfig(plugins []shared.SdkPluginConfig, skills any) ProtocolOption {
+	return func(p *Protocol) {
+		if len(plugins) > 0 {
+			p.plugins = append([]shared.SdkPluginConfig(nil), plugins...)
+		}
+		if names, ok := skills.([]string); ok {
+			copied := append([]string(nil), names...)
+			p.skills = &copied
+		}
 	}
 }
 
@@ -394,6 +414,13 @@ func (p *Protocol) Initialize(ctx context.Context) (*InitializeResponse, error) 
 		// Build initialize request with hooks configuration
 		initReq := InitializeRequest{
 			Subtype: SubtypeInitialize,
+		}
+		if len(p.plugins) > 0 {
+			initReq.Plugins = append([]shared.SdkPluginConfig(nil), p.plugins...)
+		}
+		if p.skills != nil {
+			skills := append([]string(nil), (*p.skills)...)
+			initReq.Skills = &skills
 		}
 
 		// Generate hook registrations and build hooks config

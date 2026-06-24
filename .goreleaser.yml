@@ -19,10 +19,10 @@ changelog:
   use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
       - Merge pull request
       - Merge branch
       - go mod tidy
@@ -30,10 +30,10 @@ changelog:
     - title: Features
       regexp: "^.*feat[(\\w)]*:+.*$"
       order: 0
-    - title: 'Bug fixes'
+    - title: "Bug fixes"
       regexp: "^.*fix[(\\w)]*:+.*$"
       order: 1
-    - title: 'Performance'
+    - title: "Performance"
       regexp: "^.*perf[(\\w)]*:+.*$"
       order: 2
     - title: Others
@@ -41,7 +41,7 @@ changelog:
 
 release:
   github:
-    owner: severity1
+    owner: tea4go
     name: claude-agent-sdk-go
   prerelease: auto
   mode: replace
@@ -63,7 +63,7 @@ release:
 
     // Query API (one-shot)
     messages, err := claudecode.Query(ctx, "Hello!")
-    
+
     // Client API (streaming)
     err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
         return client.Query(ctx, "Hello!")

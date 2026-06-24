@@ -130,6 +130,7 @@ func (t *Transport) Connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	t.options = opts
 
 	// Build command with all options
 	var args []string
@@ -237,6 +238,8 @@ func (t *Transport) needsProtocolHandshake() bool {
 	return t.options.Hooks != nil ||
 		t.options.CanUseTool != nil ||
 		t.options.EnableFileCheckpointing ||
+		len(t.options.Plugins) > 0 ||
+		isSkillsList(t.options.Skills) ||
 		t.hasSdkMcpServers()
 }
 

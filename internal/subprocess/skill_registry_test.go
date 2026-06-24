@@ -149,6 +149,31 @@ func TestRuntimeOptionsDoNotRestrictSkillsWhenOnlyRegistryConfigured(t *testing.
 	assertNotContainsArg(t, cmd, "--allowed-tools")
 }
 
+func TestRuntimeSkillRegistryRequiresStreamingInitialize(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkill(t, registryRoot, "compress")
+
+	transport := New("echo", &shared.Options{
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"compress"},
+			},
+		},
+	}, false, "sdk-go-client")
+
+	opts, err := transport.prepareRuntimeOptions()
+	if err != nil {
+		t.Fatalf("prepareRuntimeOptions error: %v", err)
+	}
+	defer transport.cleanup()
+	transport.options = opts
+
+	if !transport.needsProtocolHandshake() {
+		t.Fatal("runtime skill registry plugins should trigger streaming initialize")
+	}
+}
+
 func TestPrepareSkillRegistriesAllDiscoversSkillDirs(t *testing.T) {
 	registryRoot := t.TempDir()
 	createTestSkill(t, registryRoot, "alpha")

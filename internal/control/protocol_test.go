@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
 const testModelSonnet = "claude-sonnet-4-5"
@@ -555,6 +557,7 @@ func testThreadSafeConcurrentRequests(t *testing.T) {
 
 func TestInitializeHandshake(t *testing.T) {
 	t.Run("success", testInitializeSuccess)
+	t.Run("sends_session_config", testInitializeSendsSessionConfig)
 	t.Run("timeout", testInitializeTimeout)
 	t.Run("error_response", testInitializeErrorResponse)
 	t.Run("cached_result", testInitializeCachedResult)
@@ -596,6 +599,56 @@ func testInitializeSuccess(t *testing.T) {
 
 	if resp == nil {
 		t.Fatal("expected initialize response, got nil")
+	}
+}
+
+func testInitializeSendsSessionConfig(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := setupControlTestContext(t, 5*time.Second)
+	defer cancel()
+
+	transport := newControlMockTransport()
+	protocol := NewProtocol(transport, WithSessionConfig(
+		[]shared.SdkPluginConfig{{Type: shared.SdkPluginTypeLocal, Path: "/tmp/sdk-skill-registry"}},
+		[]string{"validate-json"},
+	))
+
+	err := protocol.Start(ctx)
+	assertControlNoError(t, err)
+	defer func() { _ = protocol.Close() }()
+
+	go func() {
+		req, ok := transport.waitForFirstWrite(time.Now().Add(2 * time.Second))
+		if ok {
+			transport.injectResponse(req.RequestID, map[string]any{
+				"supported_commands": []string{"interrupt", "initialize"},
+			})
+		}
+	}()
+
+	_, err = protocol.Initialize(ctx)
+	assertControlNoError(t, err)
+
+	req, ok := transport.waitForFirstWrite(time.Now().Add(2 * time.Second))
+	if !ok {
+		t.Fatal("expected initialize request")
+	}
+	request, ok := req.Request.(map[string]any)
+	if !ok {
+		t.Fatalf("initialize request payload = %T, want map", req.Request)
+	}
+	plugins, ok := request["plugins"].([]any)
+	if !ok || len(plugins) != 1 {
+		t.Fatalf("plugins = %#v, want one plugin", request["plugins"])
+	}
+	plugin, ok := plugins[0].(map[string]any)
+	if !ok || plugin["path"] != "/tmp/sdk-skill-registry" {
+		t.Fatalf("plugin = %#v, want local plugin path", plugins[0])
+	}
+	skills, ok := request["skills"].([]any)
+	if !ok || len(skills) != 1 || skills[0] != "validate-json" {
+		t.Fatalf("skills = %#v, want validate-json", request["skills"])
 	}
 }
 

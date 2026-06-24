@@ -91,6 +91,10 @@ type InitializeRequest struct {
 	// Hooks contains hook registrations keyed by event type.
 	// Format: {"PreToolUse": [...], "PostToolUse": [...]}
 	Hooks map[string][]HookMatcherConfig `json:"hooks,omitempty"`
+	// Plugins contains local plugin directories to expose in streaming sessions.
+	Plugins []shared.SdkPluginConfig `json:"plugins,omitempty"`
+	// Skills filters which discovered Skills are loaded for this session.
+	Skills *[]string `json:"skills,omitempty"`
 }
 
 // InitializeResponse contains the CLI's response to initialization.
