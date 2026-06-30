@@ -20,29 +20,26 @@ func (t *Transport) handleStdout() {
 	defer close(t.errChan)
 	defer t.validator.MarkStreamEnd() // Mark stream end for validation
 
-	scanner := bufio.NewScanner(t.stdout)
-
-	// Scanner token size must match the parser's buffer limit so lines aren't
-	// truncated before parsing. Default is 64KB; respect MaxBufferSize if set.
-	scanTokenSize := parser.MaxBufferSize
+	// Stdout is JSONL. Use Reader rather than Scanner so oversized messages
+	// fail through the SDK buffer limit instead of Scanner's token limit.
+	reader := bufio.NewReader(t.stdout)
+	lineLimit := parser.MaxBufferSize
 	if t.options != nil && t.options.MaxBufferSize != nil {
-		scanTokenSize = *t.options.MaxBufferSize
+		lineLimit = *t.options.MaxBufferSize
 	}
-	buf := make([]byte, scanTokenSize)
-	scanner.Buffer(buf, scanTokenSize)
 
 	parsedAny := false
+	var lineBuilder strings.Builder
 
-	for scanner.Scan() {
+	processLine := func(line string) bool {
 		select {
 		case <-t.ctx.Done():
-			return
+			return false
 		default:
 		}
 
-		line := scanner.Text()
 		if line == "" {
-			continue
+			return true
 		}
 
 		// Parse line with the parser
@@ -51,9 +48,9 @@ func (t *Transport) handleStdout() {
 			select {
 			case t.errChan <- err:
 			case <-t.ctx.Done():
-				return
+				return false
 			}
-			continue
+			return true
 		}
 
 		// Send parsed messages and track for validation
@@ -87,16 +84,69 @@ func (t *Transport) handleStdout() {
 			case t.msgChan <- msg:
 				parsedAny = true
 			case <-t.ctx.Done():
-				return
+				return false
 			}
 		}
+		return true
 	}
 
-	if err := scanner.Err(); err != nil {
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > 0 {
+			lineComplete := fragment[len(fragment)-1] == '\n'
+			if lineComplete {
+				fragment = trimStdoutLineEnding(fragment)
+			}
+
+			if lineBuilder.Len()+len(fragment) > lineLimit {
+				bufferSize := lineBuilder.Len() + len(fragment)
+				select {
+				case t.errChan <- shared.NewJSONDecodeError(
+					"buffer overflow",
+					0,
+					fmt.Errorf("buffer size %d exceeds limit %d", bufferSize, lineLimit),
+				):
+				case <-t.ctx.Done():
+					return
+				}
+				lineBuilder.Reset()
+				if !lineComplete {
+					if drainErr := drainStdoutLine(reader); drainErr != nil && !errors.Is(drainErr, io.EOF) {
+						select {
+						case t.errChan <- fmt.Errorf("stdout read error: %w", drainErr):
+						case <-t.ctx.Done():
+						}
+						return
+					}
+				}
+			} else {
+				lineBuilder.Write(fragment)
+				if lineComplete {
+					if !processLine(lineBuilder.String()) {
+						return
+					}
+					lineBuilder.Reset()
+				}
+			}
+		}
+
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			if lineBuilder.Len() > 0 && !processLine(lineBuilder.String()) {
+				return
+			}
+			break
+		}
 		select {
-		case t.errChan <- fmt.Errorf("stdout scanner error: %w", err):
+		case t.errChan <- fmt.Errorf("stdout read error: %w", err):
 		case <-t.ctx.Done():
 		}
+		return
 	}
 
 	if !parsedAny {
@@ -112,6 +162,29 @@ func (t *Transport) handleStdout() {
 		case t.errChan <- fmt.Errorf("claude cli produced no output (no stdout messages). Set WithDebugWriter or WithStderrCallback to inspect stderr, and verify claude CLI is installed/authenticated"):
 		case <-t.ctx.Done():
 		}
+	}
+}
+
+func trimStdoutLineEnding(line []byte) []byte {
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		line = line[:len(line)-1]
+	}
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return line
+}
+
+func drainStdoutLine(reader *bufio.Reader) error {
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+			return nil
+		}
+		if err == nil || errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return err
 	}
 }
 

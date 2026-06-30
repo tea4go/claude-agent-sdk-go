@@ -1,6 +1,8 @@
 package subprocess
 
 import (
+	"context"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/control"
+	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
@@ -203,6 +206,39 @@ func TestTransportHandleStdoutErrorPaths(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestTransportHandleStdoutLargeLineReportsParserOverflow(t *testing.T) {
+	line := `{"type":"assistant","content":[{"type":"text","text":"` +
+		strings.Repeat("x", parser.MaxBufferSize) +
+		`"}],"model":"claude-3"}`
+	transport := &Transport{
+		ctx:       context.Background(),
+		stdout:    io.NopCloser(strings.NewReader(line + "\n")),
+		msgChan:   make(chan shared.Message, 2),
+		errChan:   make(chan error, 2),
+		parser:    parser.New(),
+		validator: shared.NewStreamValidator(),
+	}
+	transport.wg.Add(1)
+
+	go transport.handleStdout()
+
+	var errors []string
+	for err := range transport.errChan {
+		if err != nil {
+			errors = append(errors, err.Error())
+		}
+	}
+	transport.wg.Wait()
+
+	joined := strings.Join(errors, "\n")
+	if !strings.Contains(joined, "buffer overflow") {
+		t.Fatalf("expected parser buffer overflow, got errors:\n%s", joined)
+	}
+	if strings.Contains(joined, "token too long") {
+		t.Fatalf("stdout reader failed before parser could report overflow:\n%s", joined)
+	}
 }
 
 // TestStderrCallbackHandling tests stderr callback processing.
