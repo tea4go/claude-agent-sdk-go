@@ -37,6 +37,7 @@ go.work.sum
 # Claude Code auto-memory
 .claude/auto-memory/dirty-files
 .claude/auto-memory/dirty-files-*
+.claude/settings.json
 
 # Auto-generated fuzz corpus
 testdata/fuzz/
