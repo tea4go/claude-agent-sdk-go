@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
@@ -74,6 +75,52 @@ func TestPrepareSkillRegistriesUsesFrontmatterSkillNameForAllowedTool(t *testing
 	assertSkillLink(t, pluginDir, registryRoot, "zym-skills")
 	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:find-skills)")
 	assertNotContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:zym-skills)")
+}
+
+func TestPrepareSkillRegistriesCanonicalizesFrontmatterSkillNameForAllowedTool(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkillWithFrontmatterName(t, registryRoot, "e2e-test-creator-v4.2", "e2e-test-creator-v4.2")
+
+	transport := New("echo", &shared.Options{
+		AllowedTools: []string{"Read"},
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"e2e-test-creator-v4.2"},
+			},
+		},
+	}, true, "sdk-go")
+
+	opts, err := transport.prepareSkillRegistries(transport.options)
+	if err != nil {
+		t.Fatalf("prepareSkillRegistries error: %v", err)
+	}
+
+	assertContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:e2e-test-creator-v4-2)")
+	assertNotContainsString(t, opts.AllowedTools, "Skill(sdk-skill-registry:e2e-test-creator-v4.2)")
+}
+
+func TestPrepareSkillRegistriesRejectsCanonicalNameCollision(t *testing.T) {
+	registryRoot := t.TempDir()
+	createTestSkillWithFrontmatterName(t, registryRoot, "dotted", "review.v2")
+	createTestSkillWithFrontmatterName(t, registryRoot, "hyphenated", "review-v2")
+
+	transport := New("echo", &shared.Options{
+		SkillRegistries: []shared.SkillRegistryConfig{
+			{
+				Root:  registryRoot,
+				Names: []string{"dotted", "hyphenated"},
+			},
+		},
+	}, true, "sdk-go")
+
+	_, err := transport.prepareSkillRegistries(transport.options)
+	if err == nil {
+		t.Fatal("expected canonical runtime name collision error")
+	}
+	if !strings.Contains(err.Error(), `runtime name "review-v2"`) {
+		t.Fatalf("unexpected collision error: %v", err)
+	}
 }
 
 func TestPrepareSkillRegistriesPreservesExistingSkillAllowlist(t *testing.T) {

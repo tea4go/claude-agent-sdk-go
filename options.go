@@ -523,7 +523,8 @@ func WithLocalPlugin(path string) Option {
 // directory. The registry root must contain one subdirectory per Skill, each
 // with a SKILL.md file. The SDK presents the selected Skills to Claude CLI via
 // a temporary local plugin wrapper without copying them into the project or
-// user ~/.claude directory.
+// user ~/.claude directory. Use SkillRegistryScopedName when explicitly
+// instructing Claude to invoke one of these Skills.
 func WithSkillRegistry(root string, names ...string) Option {
 	return func(o *Options) {
 		selected := append([]string(nil), names...)

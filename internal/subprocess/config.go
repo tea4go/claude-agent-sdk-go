@@ -16,8 +16,6 @@ import (
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
-const defaultSkillRegistryPluginName = "sdk-skill-registry"
-
 // generateMcpConfigFile creates a temporary MCP config file from options.McpServers.
 // Returns the file path. The file is stored in t.mcpConfigFile for cleanup.
 func (t *Transport) generateMcpConfigFile(options *shared.Options) (string, error) {
@@ -357,9 +355,9 @@ func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Opt
 	for i, registry := range options.SkillRegistries {
 		pluginName := registry.PluginName
 		if pluginName == "" {
-			pluginName = defaultSkillRegistryPluginName
+			pluginName = shared.DefaultSkillRegistryPluginName
 			if len(options.SkillRegistries) > 1 {
-				pluginName = fmt.Sprintf("%s-%d", defaultSkillRegistryPluginName, i+1)
+				pluginName = fmt.Sprintf("%s-%d", shared.DefaultSkillRegistryPluginName, i+1)
 			}
 		}
 
@@ -367,6 +365,30 @@ func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Opt
 		if err != nil {
 			t.cleanupSkillRegistryDirs()
 			return nil, err
+		}
+
+		skillNames := make(map[string]string, len(names))
+		runtimeNames := make(map[string]string, len(names))
+		for _, name := range names {
+			skillName, err := readSkillName(registry.Root, name)
+			if err != nil {
+				t.cleanupSkillRegistryDirs()
+				return nil, err
+			}
+			skillNames[name] = skillName
+
+			runtimeName := shared.CanonicalSkillName(skillName)
+			if previousDir, ok := runtimeNames[runtimeName]; ok && previousDir != name {
+				t.cleanupSkillRegistryDirs()
+				return nil, fmt.Errorf(
+					"skills %q and %q in registry %s resolve to the same Claude Code runtime name %q",
+					previousDir,
+					name,
+					registry.Root,
+					runtimeName,
+				)
+			}
+			runtimeNames[runtimeName] = name
 		}
 
 		pluginDir, err := t.generateSkillRegistryPlugin(registry.Root, pluginName, names)
@@ -381,12 +403,7 @@ func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Opt
 		})
 		if shouldExtendAllowedTools {
 			for _, name := range names {
-				skillName, err := readSkillName(registry.Root, name)
-				if err != nil {
-					t.cleanupSkillRegistryDirs()
-					return nil, err
-				}
-				tool := fmt.Sprintf("Skill(%s:%s)", pluginName, skillName)
+				tool := fmt.Sprintf("Skill(%s)", shared.SkillRegistryScopedName(pluginName, skillNames[name]))
 				if !containsString(optsCopy.AllowedTools, tool) {
 					optsCopy.AllowedTools = append(optsCopy.AllowedTools, tool)
 				}

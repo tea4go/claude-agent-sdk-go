@@ -924,6 +924,19 @@ that mode, selected registry Skills are appended to the same allowlist.
 func WithSkillRegistry(root string, names ...string) Option
 ```
 
+Claude Code canonicalizes plugin Skill names by replacing characters outside
+ASCII letters, digits, `_`, and `-` with `-`. Use
+`SkillRegistryScopedName("", skillName)` when explicitly naming a registry
+Skill in a prompt:
+
+```go
+runtimeName := claudecode.SkillRegistryScopedName(
+    "",
+    "e2e-test-creator-v4.2",
+)
+// sdk-skill-registry:e2e-test-creator-v4-2
+```
+
 ```go
 claudecode.Query(ctx, prompt,
     claudecode.WithSkillRegistry(
