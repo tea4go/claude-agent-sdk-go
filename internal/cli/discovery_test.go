@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
@@ -1642,6 +1643,11 @@ func TestCompareVersionParts(t *testing.T) {
 // TestCheckCLIVersion tests CLI version check (mimics Python SDK _check_claude_version)
 func TestCheckCLIVersion(t *testing.T) {
 	ctx := context.Background()
+	originalTimeout := cliVersionCheckTimeout
+	cliVersionCheckTimeout = 10 * time.Second
+	defer func() {
+		cliVersionCheckTimeout = originalTimeout
+	}()
 
 	t.Run("outdated_returns_warning", func(t *testing.T) {
 		mockCLI := createVersionMockCLI(t, "1.0.0")
@@ -1827,5 +1833,5 @@ func validateSkillsNoop(t *testing.T, cmd []string) {
 	t.Helper()
 	// AllowedTools unchanged; SettingSources stays at the global default (empty).
 	assertContainsArgs(t, cmd, "--allowed-tools", "Read")
-	assertContainsArgs(t, cmd, "--setting-sources", "")
+	assertNotContainsArg(t, cmd, "--setting-sources")
 }

@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
@@ -21,8 +21,8 @@ import (
 const (
 	// channelBufferSize is the buffer size for message and error channels.
 	channelBufferSize = 10
-	// terminationTimeoutSeconds is the timeout for graceful process termination.
-	terminationTimeoutSeconds = 5
+	// ioShutdownTimeout bounds readers after the process tree and pipes stop.
+	ioShutdownTimeout = time.Second
 	// windowsOS is the GOOS value for Windows platform.
 	windowsOS = "windows"
 )
@@ -39,6 +39,9 @@ type Transport struct {
 
 	// Connection state
 	connected bool
+	closing   bool
+	closeDone chan struct{}
+	closeErr  error
 	mu        sync.RWMutex
 
 	// I/O streams
@@ -71,9 +74,17 @@ type Transport struct {
 	slashCommandsReadyOnce sync.Once
 
 	// Control and cleanup
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	processCancel         context.CancelFunc
+	processTree           processTree
+	cancellationRequested uint32
+	watcherStop           chan struct{}
+	watcherDone           chan struct{}
+	processWaitOnce       sync.Once
+	processWaitDone       chan struct{}
+	processWaitErr        error
+	wg                    sync.WaitGroup
 }
 
 // New creates a new subprocess transport.
@@ -121,9 +132,17 @@ func (t *Transport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if t.closing {
+		return fmt.Errorf("transport is closing")
+	}
 	if t.connected {
 		return fmt.Errorf("transport already connected")
 	}
+	t.closeDone = make(chan struct{})
+	t.closeErr = nil
 
 	// Generate temporary plugin wrappers and MCP config files if requested.
 	opts, err := t.prepareRuntimeOptions()
@@ -141,7 +160,13 @@ func (t *Transport) Connect(ctx context.Context) error {
 		// Streaming mode or regular one-shot
 		args = cli.BuildCommand(t.cliPath, opts, t.closeStdin)
 	}
-	t.cmd = cli.NewExecCommandContext(ctx, args)
+	processCtx, processCancel := context.WithCancel(context.Background())
+	t.processCancel = processCancel
+	t.processWaitOnce = sync.Once{}
+	t.processWaitDone = make(chan struct{})
+	t.processWaitErr = nil
+	t.cmd = cli.NewExecCommandContext(processCtx, args)
+	configureProcessTree(t.cmd)
 
 	// Set up environment and apply to command
 	t.cmd.Env = t.buildEnvironment()
@@ -149,6 +174,8 @@ func (t *Transport) Connect(ctx context.Context) error {
 	// Set working directory if specified
 	if t.options != nil && t.options.Cwd != nil {
 		if err := cli.ValidateWorkingDirectory(*t.options.Cwd); err != nil {
+			processCancel()
+			t.cleanup()
 			return err
 		}
 		t.cmd.Dir = *t.options.Cwd
@@ -159,11 +186,14 @@ func (t *Transport) Connect(ctx context.Context) error {
 
 	// Set up I/O pipes
 	if err := t.setupIoPipes(); err != nil {
+		processCancel()
+		t.cleanup()
 		return err
 	}
 
 	// Start the process
 	if err := t.cmd.Start(); err != nil {
+		processCancel()
 		t.cleanup()
 		return shared.NewConnectionError(
 			fmt.Sprintf("failed to start Claude CLI: %v", err),
@@ -171,8 +201,22 @@ func (t *Transport) Connect(ctx context.Context) error {
 		)
 	}
 
+	tree, err := attachProcessTree(t.cmd)
+	if err != nil {
+		_ = t.cmd.Process.Kill()
+		processCancel()
+		_ = t.cmd.Wait()
+		t.cleanup()
+		return shared.NewConnectionError(
+			fmt.Sprintf("failed to own Claude CLI process tree: %v", err),
+			err,
+		)
+	}
+	t.processTree = tree
+
 	// Set up context for goroutine management
 	t.ctx, t.cancel = context.WithCancel(ctx)
+	atomic.StoreUint32(&t.cancellationRequested, 0)
 
 	// Initialize channels
 	t.msgChan = make(chan shared.Message, channelBufferSize)
@@ -197,8 +241,37 @@ func (t *Transport) Connect(ctx context.Context) error {
 
 	// Set up control protocol for streaming mode only
 	if err := t.setupControlProtocol(t.ctx); err != nil {
+		atomic.StoreUint32(&t.cancellationRequested, 1)
+		_ = t.terminateProcess()
+		if t.cancel != nil {
+			t.cancel()
+		}
+		if t.protocol != nil {
+			_ = t.protocol.Close()
+			t.protocol = nil
+		}
+		if t.protocolAdapter != nil {
+			_ = t.protocolAdapter.Close()
+			t.protocolAdapter = nil
+		}
+		t.wg.Wait()
+		t.cleanup()
+		t.cancel = nil
+		t.ctx = nil
 		return err
 	}
+
+	t.watcherStop = make(chan struct{})
+	t.watcherDone = make(chan struct{})
+	go t.watchCallerCancellation(
+		ctx.Done(),
+		t.watcherStop,
+		t.watcherDone,
+		t.processTree,
+		t.cmd,
+		t.processCancel,
+		t.cancel,
+	)
 
 	t.connected = true
 	return nil
@@ -215,14 +288,12 @@ func (t *Transport) setupControlProtocol(ctx context.Context) error {
 	t.protocol = control.NewProtocol(t.protocolAdapter, t.buildProtocolOptions()...)
 
 	if err := t.protocol.Start(ctx); err != nil {
-		t.cleanup()
 		return fmt.Errorf("failed to start control protocol: %w", err)
 	}
 
 	// Perform handshake when hooks, permissions, checkpointing, or SDK MCP servers configured
 	if t.needsProtocolHandshake() {
 		if _, err := t.protocol.Initialize(ctx); err != nil {
-			t.cleanup()
 			return fmt.Errorf("failed to initialize control protocol: %w", err)
 		}
 	}
@@ -303,57 +374,169 @@ func (t *Transport) ReceiveMessages(_ context.Context) (<-chan shared.Message, <
 	return t.msgChan, t.errChan
 }
 
-// Interrupt sends an interrupt signal to the subprocess.
-func (t *Transport) Interrupt(_ context.Context) error {
+// Interrupt stops the current turn through the streaming control protocol.
+// It does not terminate the CLI process or disconnect the transport.
+func (t *Transport) Interrupt(ctx context.Context) error {
 	t.mu.RLock()
-	defer t.mu.RUnlock()
-
 	if !t.connected || t.cmd == nil || t.cmd.Process == nil {
+		t.mu.RUnlock()
 		return fmt.Errorf("process not running")
 	}
-
-	// Windows doesn't support os.Interrupt signal
-	if runtime.GOOS == windowsOS {
-		return fmt.Errorf("interrupt not supported by windows")
+	if t.closeStdin {
+		t.mu.RUnlock()
+		return fmt.Errorf("interrupt not available in one-shot mode")
 	}
+	protocol := t.protocol
+	transportCtx := t.ctx
+	t.mu.RUnlock()
 
-	// Send interrupt signal (Unix/Linux/macOS)
-	return t.cmd.Process.Signal(os.Interrupt)
+	if transportCtx != nil && transportCtx.Err() != nil {
+		return nil
+	}
+	if protocol == nil {
+		return fmt.Errorf("control protocol not initialized")
+	}
+	err := protocol.Interrupt(ctx)
+	if err != nil && atomic.LoadUint32(&t.cancellationRequested) != 0 {
+		return nil
+	}
+	return err
 }
 
-// Close terminates the subprocess connection.
+// Abort immediately force-stops the subprocess tree and performs the same
+// deterministic resource cleanup as Close. It is safe to call while a
+// graceful Close is already in progress; the in-progress close is escalated.
+func (t *Transport) Abort() error {
+	atomic.StoreUint32(&t.cancellationRequested, 1)
+
+	t.mu.RLock()
+	closing := t.closing
+	tree := t.processTree
+	done := t.closeDone
+	t.mu.RUnlock()
+
+	if !closing {
+		return t.Close()
+	}
+
+	var forceErr error
+	if tree != nil {
+		if err := tree.forceStop(); err != nil && !isProcessAlreadyFinishedError(err) {
+			forceErr = fmt.Errorf("force process tree: %w", err)
+		}
+	}
+	if done != nil {
+		<-done
+	}
+
+	t.mu.RLock()
+	closeErr := t.closeErr
+	t.mu.RUnlock()
+	if closeErr != nil {
+		return closeErr
+	}
+	return forceErr
+}
+
+// Close gracefully terminates the subprocess connection. It closes stdin and
+// allows the CLI a bounded interval to persist session state before force-stop.
 func (t *Transport) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
+	if t.closing {
+		done := t.closeDone
+		t.mu.Unlock()
+		if done != nil {
+			<-done
+		}
+		t.mu.RLock()
+		err := t.closeErr
+		t.mu.RUnlock()
+		return err
+	}
 	if !t.connected {
-		return nil // Already closed
+		done := t.closeDone
+		err := t.closeErr
+		t.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+				return err
+			default:
+			}
+		}
+		return nil
 	}
 
 	t.connected = false
+	t.closing = true
 
-	// Close control protocol first (before cancelling context)
-	if t.protocol != nil {
-		_ = t.protocol.Close()
-		t.protocol = nil
+	watcherStop := t.watcherStop
+	t.watcherStop = nil
+	watcherDone := t.watcherDone
+	protocol := t.protocol
+	protocolAdapter := t.protocolAdapter
+	stdin := t.stdin
+	t.stdin = nil
+	cancel := t.cancel
+	transportCtx := t.ctx
+	done := t.closeDone
+	t.mu.Unlock()
+
+	if watcherStop != nil {
+		close(watcherStop)
 	}
-	if t.protocolAdapter != nil {
-		_ = t.protocolAdapter.Close()
-		t.protocolAdapter = nil
+	if watcherDone != nil {
+		<-watcherDone
+	}
+	if transportCtx != nil && transportCtx.Err() != nil {
+		atomic.StoreUint32(&t.cancellationRequested, 1)
+	}
+	if stdin != nil {
+		_ = stdin.Close()
 	}
 
-	// Cancel context to stop goroutines
-	if t.cancel != nil {
-		t.cancel()
+	err := t.terminateProcess()
+
+	if cancel != nil {
+		cancel()
+	}
+	if protocol != nil {
+		_ = protocol.Close()
+	}
+	if protocolAdapter != nil {
+		_ = protocolAdapter.Close()
 	}
 
-	// Close stdin if open
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-		t.stdin = nil
-	}
+	// The tree is gone at this point. Closing read handles guarantees that
+	// escaped descendants cannot keep the SDK readers blocked.
+	t.closeReadPipes()
+	t.waitForReaders()
+	t.cleanup()
 
-	// Wait for goroutines to finish with timeout
+	t.mu.Lock()
+	t.protocol = nil
+	t.protocolAdapter = nil
+	t.cancel = nil
+	t.ctx = nil
+	t.closeErr = err
+	t.closing = false
+	if done != nil {
+		close(done)
+	}
+	t.mu.Unlock()
+	return err
+}
+
+func (t *Transport) closeReadPipes() {
+	if t.stdout != nil {
+		_ = t.stdout.Close()
+	}
+	if t.stderrPipe != nil {
+		_ = t.stderrPipe.Close()
+	}
+}
+
+func (t *Transport) waitForReaders() {
 	done := make(chan struct{})
 	go func() {
 		t.wg.Wait()
@@ -362,20 +545,6 @@ func (t *Transport) Close() error {
 
 	select {
 	case <-done:
-		// Goroutines finished gracefully
-	case <-time.After(terminationTimeoutSeconds * time.Second):
-		// Timeout: proceed with cleanup anyway
-		// Goroutines should terminate when process is killed
+	case <-time.After(ioShutdownTimeout):
 	}
-
-	// Terminate process with 5-second timeout
-	var err error
-	if t.cmd != nil && t.cmd.Process != nil {
-		err = t.terminateProcess()
-	}
-
-	// Cleanup resources
-	t.cleanup()
-
-	return err
 }

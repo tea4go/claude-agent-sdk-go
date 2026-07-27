@@ -249,41 +249,25 @@ err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 
 ## Graceful Shutdown Pattern
 
-Process termination follows a graceful shutdown sequence:
-- **SIGTERM first**: Allow clean exit
-- **Grace period**: Wait for voluntary termination
-- **SIGKILL fallback**: Force termination if needed
+Process termination owns the entire Claude CLI process tree:
+
+- **Unix process group**: Send SIGTERM to the group, then SIGKILL if needed.
+- **Windows Job Object**: Close stdin for a natural exit, then terminate the
+  Job Object if needed.
+- **One grace period**: Process cleanup happens before waiting for pipe readers,
+  so inherited handles cannot create a second five-second delay.
+- **Context cancellation**: Skip the grace period and force-stop the tree
+  immediately.
 
 ### Implementation
 
 ```go
 func (t *Transport) Close() error {
-    // 1. Close stdin to signal EOF
-    if t.stdin != nil {
-        t.stdin.Close()
-    }
-
-    // 2. Send SIGTERM
-    if t.cmd.Process != nil {
-        t.cmd.Process.Signal(syscall.SIGTERM)
-    }
-
-    // 3. Wait with timeout
-    done := make(chan error, 1)
-    go func() {
-        done <- t.cmd.Wait()
-    }()
-
-    select {
-    case <-done:
-        // Process exited gracefully
-    case <-time.After(5 * time.Second):
-        // 4. Force kill if still running
-        t.cmd.Process.Signal(syscall.SIGKILL)
-        <-done
-    }
-
-    // 5. Clean up resources
+    // 1. Atomically mark disconnected; concurrent Close calls share a result.
+    // 2. Close stdin.
+    // 3. Gracefully stop and wait for the platform process tree once.
+    // 4. Force-stop the tree if the grace period expires.
+    // 5. Cancel I/O, close pipes, wait readers, and release temporary files.
     t.cleanup()
     return nil
 }

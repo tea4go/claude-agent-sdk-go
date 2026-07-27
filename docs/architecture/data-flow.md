@@ -43,9 +43,10 @@ Query(ctx, "prompt", opts...)
               │
               └─► transport.Close()
                       │
-                      ├─► Send SIGTERM
-                      ├─► Wait 5 seconds
-                      ├─► Send SIGKILL (if still running)
+                      ├─► Close stdin
+                      ├─► Gracefully stop owned process tree
+                      ├─► Wait up to 5 seconds
+                      ├─► Force-stop tree (if still running)
                       └─► Clean up resources
 ```
 
@@ -75,10 +76,10 @@ Query(ctx, "prompt", opts...)
    │                  │                     │                     │
    │ Close()          │                     │                     │
    │─────────────────►│ Close()             │                     │
-   │                  │────────────────────►│ SIGTERM             │
+   │                  │────────────────────►│ close stdin / tree  │
    │                  │                     │────────────────────►│
-   │                  │                     │ (wait 5s)           │
-   │                  │                     │────────────────────►│
+   │                  │                     │ (wait up to 5s)     │
+   │                  │                     │ force tree if needed│
    │                  │                     │                     │
 └──┴──┘          └────┴────┘          └─────┴─────┘          └────┴────┘
 ```

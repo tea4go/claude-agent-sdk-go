@@ -37,6 +37,7 @@ Defines the `Client` interface for bidirectional streaming communication:
 type Client interface {
     Connect(ctx context.Context, prompt ...StreamMessage) error
     Disconnect() error
+    Abort() error
     Query(ctx context.Context, prompt string) error
     QueryWithSession(ctx context.Context, prompt string, sessionID string) error
     ReceiveMessages(ctx context.Context) <-chan Message
@@ -165,7 +166,8 @@ Helper functions: `AsCLINotFoundError()`, `AsConnectionError()`, `AsMessageParse
 - Spawn and manage CLI subprocess
 - Handle stdin/stdout/stderr communication
 - Route messages between CLI and SDK
-- Implement graceful shutdown (SIGTERM -> 5s -> SIGKILL)
+- Own and clean up the complete CLI process tree (Unix process group / Windows Job Object)
+- Implement one bounded graceful shutdown interval before force termination
 - Validate message streams
 
 ## Component Diagram

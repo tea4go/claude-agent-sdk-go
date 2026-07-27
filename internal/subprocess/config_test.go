@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,11 +23,6 @@ func TestTransportEnvironmentSetup(t *testing.T) {
 	connectTransportSafely(ctx, t, transport)
 	assertTransportConnected(t, transport, true)
 
-	// Test interrupt (platform-specific signals)
-	if runtime.GOOS != windowsOS {
-		err := transport.Interrupt(ctx)
-		assertNoTransportError(t, err)
-	}
 }
 
 // TestSubprocessEnvironmentVariables tests environment variable passing to subprocess
@@ -231,6 +225,7 @@ func TestTransportMcpServerConfiguration(t *testing.T) {
 	ctx, cancel := setupTransportTestContext(t, 5*time.Second)
 	defer cancel()
 
+	var originalExtraArgs map[string]*string
 	tests := []struct {
 		name     string
 		setup    func() *Transport
@@ -442,6 +437,7 @@ func TestTransportMcpServerConfiguration(t *testing.T) {
 					McpServers: mcpServers,
 					ExtraArgs:  map[string]*string{"existing": stringPtr("value")},
 				}
+				originalExtraArgs = options.ExtraArgs
 				return New(newTransportMockCLI(), options, false, "sdk-go")
 			},
 			validate: func(t *testing.T, transport *Transport) {
@@ -457,7 +453,7 @@ func TestTransportMcpServerConfiguration(t *testing.T) {
 				}
 
 				// Verify original ExtraArgs was not mutated
-				if transport.options.ExtraArgs["mcp-config"] != nil {
+				if originalExtraArgs["mcp-config"] != nil {
 					t.Error("Original options.ExtraArgs should not be mutated")
 				}
 			},

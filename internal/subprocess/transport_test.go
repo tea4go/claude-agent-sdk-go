@@ -49,6 +49,42 @@ func TestTransportLifecycle(t *testing.T) {
 	assertTransportConnected(t, transport, true)
 }
 
+func TestTransportConcurrentClose(t *testing.T) {
+	ctx, cancel := setupTransportTestContext(t, 5*time.Second)
+	defer cancel()
+
+	transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
+	connectTransportSafely(ctx, t, transport)
+
+	const callers = 8
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- transport.Close()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent Close() error = %v", err)
+		}
+	}
+	if transport.IsConnected() {
+		t.Fatal("transport remains connected after concurrent Close calls")
+	}
+	if err := transport.Close(); err != nil {
+		t.Fatalf("repeated Close() error = %v", err)
+	}
+}
+
 // TestTransportMessageIO tests basic message sending and receiving
 func TestTransportMessageIO(t *testing.T) {
 	ctx, cancel := setupTransportTestContext(t, 10*time.Second)
@@ -649,18 +685,44 @@ func TestTransportInterruptErrorPaths(t *testing.T) {
 		}
 	})
 
-	if runtime.GOOS != windowsOS {
-		t.Run("interrupt_signal_error", func(t *testing.T) {
-			transport := setupTransportForTest(t, newTransportMockCLI())
-			defer disconnectTransportSafely(t, transport)
+	t.Run("interrupt_uses_streaming_control_protocol", func(t *testing.T) {
+		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
+		defer disconnectTransportSafely(t, transport)
 
-			connectTransportSafely(ctx, t, transport)
+		connectTransportSafely(ctx, t, transport)
 
-			// Normal interrupt should work
-			err := transport.Interrupt(ctx)
-			assertNoTransportError(t, err)
-		})
-	}
+		err := transport.Interrupt(ctx)
+		assertNoTransportError(t, err)
+		assertTransportConnected(t, transport, true)
+	})
+
+	t.Run("interrupt_rejects_one_shot_mode", func(t *testing.T) {
+		transport := NewWithPrompt(newTransportMockCLI(), nil, "test prompt")
+		defer disconnectTransportSafely(t, transport)
+
+		connectTransportSafely(ctx, t, transport)
+
+		err := transport.Interrupt(ctx)
+		if err == nil {
+			t.Fatal("expected one-shot interrupt to fail")
+		}
+		if !strings.Contains(err.Error(), "one-shot") {
+			t.Fatalf("Interrupt() error = %q, want one-shot mode error", err)
+		}
+	})
+
+	t.Run("interrupt_after_owner_context_cancel_is_idempotent", func(t *testing.T) {
+		ownerCtx, ownerCancel := context.WithCancel(context.Background())
+		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
+		defer disconnectTransportSafely(t, transport)
+
+		connectTransportSafely(ownerCtx, t, transport)
+		ownerCancel()
+
+		if err := transport.Interrupt(context.Background()); err != nil {
+			t.Fatalf("Interrupt() after owner cancellation = %v, want nil", err)
+		}
+	})
 }
 
 // TestTransportControlProtocolIntegration tests that SetModel and SetPermissionMode

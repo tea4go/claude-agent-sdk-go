@@ -1,14 +1,29 @@
 package subprocess
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"strings"
-	"syscall"
+	"sync/atomic"
 	"time"
 )
 
-// isProcessAlreadyFinishedError checks if an error indicates the process has already terminated.
-// This follows the Python SDK pattern of suppressing "process not found" type errors.
+var processTerminationGracePeriod = 5 * time.Second
+
+// processTree owns the Claude CLI root process and all ordinary descendants.
+// Implementations must tolerate concurrent forceStop calls from context
+// cancellation and explicit Close.
+type processTree interface {
+	gracefulStop() error
+	forceStop() error
+	wait(time.Duration) bool
+	close() error
+}
+
+// isProcessAlreadyFinishedError checks if an error indicates the process has
+// already terminated. These conditions are successful cleanup outcomes.
 func isProcessAlreadyFinishedError(err error) bool {
 	if err == nil {
 		return false
@@ -17,69 +32,112 @@ func isProcessAlreadyFinishedError(err error) bool {
 	return strings.Contains(errStr, "process already finished") ||
 		strings.Contains(errStr, "process already released") ||
 		strings.Contains(errStr, "no child processes") ||
-		strings.Contains(errStr, "signal: killed")
+		strings.Contains(errStr, "signal: killed") ||
+		strings.Contains(errStr, "signal: terminated")
 }
 
-// terminateProcess implements the 5-second SIGTERM -> SIGKILL sequence
+func (t *Transport) watchCallerCancellation(
+	ctxDone <-chan struct{},
+	stop <-chan struct{},
+	done chan<- struct{},
+	tree processTree,
+	cmd *exec.Cmd,
+	processCancel func(),
+	ioCancel func(),
+) {
+	defer close(done)
+
+	select {
+	case <-ctxDone:
+		atomic.StoreUint32(&t.cancellationRequested, 1)
+		if tree != nil {
+			_ = tree.forceStop()
+		}
+		if processCancel != nil {
+			processCancel()
+		}
+		t.startProcessWaiter(cmd)
+		if ioCancel != nil {
+			ioCancel()
+		}
+	case <-stop:
+	}
+}
+
+// terminateProcess performs one graceful process-tree wait followed by a hard
+// tree kill. Caller-context cancellation and explicit Abort skip the grace period.
 func (t *Transport) terminateProcess() error {
 	if t.cmd == nil || t.cmd.Process == nil {
 		return nil
 	}
 
-	// Send SIGTERM
-	if err := t.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		// If process is already finished, that's success
-		if isProcessAlreadyFinishedError(err) {
-			return nil
-		}
-		// If SIGTERM fails for other reasons, try SIGKILL immediately
-		killErr := t.cmd.Process.Kill()
-		if killErr != nil && !isProcessAlreadyFinishedError(killErr) {
-			return killErr
-		}
-		return nil // Don't return error for expected termination
-	}
+	waitDone := t.startProcessWaiter(t.cmd)
+	tree := t.processTree
+	var cleanupErr error
 
-	// Wait exactly 5 seconds
-	done := make(chan error, 1)
-	// Capture cmd while we know it's valid to avoid data race
-	cmd := t.cmd
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	select {
-	case err := <-done:
-		// Normal termination or expected signals are not errors
-		if err != nil {
-			// Check if it's an expected exit signal
-			if strings.Contains(err.Error(), "signal:") {
-				return nil // Expected signal termination
+	if tree != nil {
+		if atomic.LoadUint32(&t.cancellationRequested) != 0 {
+			if err := tree.forceStop(); err != nil && !isProcessAlreadyFinishedError(err) {
+				cleanupErr = fmt.Errorf("force process tree: %w", err)
+			}
+		} else {
+			if err := tree.gracefulStop(); err != nil && !isProcessAlreadyFinishedError(err) {
+				cleanupErr = fmt.Errorf("gracefully stop process tree: %w", err)
+			}
+			if !tree.wait(processTerminationGracePeriod) {
+				if err := tree.forceStop(); err != nil &&
+					!isProcessAlreadyFinishedError(err) &&
+					cleanupErr == nil {
+					cleanupErr = fmt.Errorf("force process tree after timeout: %w", err)
+				}
 			}
 		}
-		return err
-	case <-time.After(terminationTimeoutSeconds * time.Second):
-		// Force kill after 5 seconds
-		if killErr := t.cmd.Process.Kill(); killErr != nil && !isProcessAlreadyFinishedError(killErr) {
-			return killErr
-		}
-		// Wait for process to exit after kill
-		<-done
-		return nil
-	case <-t.ctx.Done():
-		// Context canceled - force kill immediately
-		if killErr := t.cmd.Process.Kill(); killErr != nil && !isProcessAlreadyFinishedError(killErr) {
-			return killErr
-		}
-		// Wait for process to exit after kill, but don't return context error
-		// since this is normal cleanup behavior
-		<-done
-		return nil
 	}
+
+	if t.processCancel != nil {
+		t.processCancel()
+	}
+
+	<-waitDone
+	waitErr := t.processWaitErr
+	if waitErr != nil &&
+		!isProcessAlreadyFinishedError(waitErr) &&
+		!strings.Contains(waitErr.Error(), "signal:") &&
+		cleanupErr == nil {
+		var exitErr *exec.ExitError
+		if !errors.As(waitErr, &exitErr) {
+			cleanupErr = fmt.Errorf("wait for Claude CLI process: %w", waitErr)
+		}
+	}
+
+	if tree != nil {
+		if err := tree.close(); err != nil &&
+			!isProcessAlreadyFinishedError(err) &&
+			cleanupErr == nil {
+			cleanupErr = fmt.Errorf("release process tree: %w", err)
+		}
+	}
+
+	return cleanupErr
 }
 
-// cleanup cleans up all resources
+func (t *Transport) startProcessWaiter(cmd *exec.Cmd) <-chan struct{} {
+	t.processWaitOnce.Do(func() {
+		go func() {
+			t.processWaitErr = cmd.Wait()
+			close(t.processWaitDone)
+		}()
+	})
+	return t.processWaitDone
+}
+
+// cleanup releases pipes, temporary files, and platform process handles.
 func (t *Transport) cleanup() {
+	if t.stdin != nil {
+		_ = t.stdin.Close()
+		t.stdin = nil
+	}
+
 	if t.stdout != nil {
 		_ = t.stdout.Close()
 		t.stdout = nil
@@ -91,24 +149,32 @@ func (t *Transport) cleanup() {
 	}
 
 	if t.stderr != nil {
-		// Graceful cleanup matching Python SDK pattern
-		// Python: except Exception: pass
 		_ = t.stderr.Close()
-		_ = os.Remove(t.stderr.Name()) // Ignore cleanup errors
+		_ = os.Remove(t.stderr.Name())
 		t.stderr = nil
 	}
 
 	if t.mcpConfigFile != nil {
-		// Clean up temporary MCP config file
 		_ = t.mcpConfigFile.Close()
-		_ = os.Remove(t.mcpConfigFile.Name()) // Ignore cleanup errors
+		_ = os.Remove(t.mcpConfigFile.Name())
 		t.mcpConfigFile = nil
 	}
 
 	t.cleanupSkillRegistryDirs()
 
-	// Reset state
+	if t.processTree != nil {
+		_ = t.processTree.close()
+		t.processTree = nil
+	}
+	if t.processCancel != nil {
+		t.processCancel()
+		t.processCancel = nil
+	}
+
 	t.cmd = nil
+	t.watcherDone = nil
+	t.processWaitDone = nil
+	t.processWaitErr = nil
 }
 
 func (t *Transport) cleanupSkillRegistryDirs() {

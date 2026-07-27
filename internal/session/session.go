@@ -13,12 +13,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
 )
 
 // errSessionNotFound is a sentinel error returned by findSessionFile when
@@ -290,7 +291,7 @@ func getWorktreePaths(dir string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "worktree", "list", "--porcelain")
+	cmd := cli.NewExecCommandContext(ctx, []string{"git", "worktree", "list", "--porcelain"})
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

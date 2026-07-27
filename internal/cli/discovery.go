@@ -23,6 +23,8 @@ const windowsOS = "windows"
 // Features may not work correctly with older versions.
 const MinimumCLIVersion = "2.0.76"
 
+var cliVersionCheckTimeout = 2 * time.Second
+
 // versionRegex matches semantic version X.Y.Z (mimics Python SDK regex).
 var versionRegex = regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+)`)
 
@@ -446,8 +448,8 @@ func CheckCLIVersion(ctx context.Context, cliPath string) (warning string) {
 		return ""
 	}
 
-	// 2-second timeout (matches Python SDK)
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// 2-second production timeout (matches Python SDK).
+	checkCtx, cancel := context.WithTimeout(ctx, cliVersionCheckTimeout)
 	defer cancel()
 
 	// Run CLI with -v flag (matches Python SDK)

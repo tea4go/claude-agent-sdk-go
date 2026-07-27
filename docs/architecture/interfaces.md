@@ -22,7 +22,8 @@ type Transport interface {
     // The message channel closes when the stream ends.
     ReceiveMessages(ctx context.Context) (<-chan Message, <-chan error)
 
-    // Interrupt sends an interrupt signal to pause/stop the current operation.
+    // Interrupt stops the current streaming turn through the control protocol
+    // while keeping the transport connected.
     Interrupt(ctx context.Context) error
 
     // SetModel changes the AI model during a streaming session.
@@ -39,11 +40,17 @@ type Transport interface {
     RewindFiles(ctx context.Context, userMessageID string) error
 
     // Close terminates the connection and cleans up resources.
-    // Implements graceful shutdown: SIGTERM -> 5s wait -> SIGKILL
+    // Cleans the owned process tree with one bounded graceful interval.
     Close() error
 
     // GetValidator returns the stream validator for diagnostics.
     GetValidator() *StreamValidator
+}
+
+// AbortableTransport is optional so existing custom transports remain source-compatible.
+type AbortableTransport interface {
+    // Abort immediately force-stops the connection and owned process tree.
+    Abort() error
 }
 ```
 
@@ -239,6 +246,7 @@ type Client interface {
     // Connection lifecycle
     Connect(ctx context.Context, prompt ...StreamMessage) error
     Disconnect() error
+    Abort() error
 
     // Query methods
     Query(ctx context.Context, prompt string) error
@@ -266,7 +274,8 @@ type Client interface {
 
 **Connection Lifecycle**
 - `Connect()` - Establish connection to CLI
-- `Disconnect()` - Close connection and clean up
+- `Disconnect()` - Gracefully close the connection, allowing bounded session persistence
+- `Abort()` - Immediately force-stop the CLI process tree and clean up
 
 **Query Methods**
 - `Query()` - Send prompt using default session
@@ -278,7 +287,7 @@ type Client interface {
 - `ReceiveResponse()` - Get iterator for message-by-message processing
 
 **Control Operations**
-- `Interrupt()` - Stop current operation
+- `Interrupt()` - Stop the current turn while keeping the connection reusable
 - `SetModel()` - Change AI model mid-session
 - `SetPermissionMode()` - Change permission handling
 - `RewindFiles()` - Revert files to checkpoint

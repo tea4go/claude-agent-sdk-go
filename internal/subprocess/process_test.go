@@ -36,11 +36,7 @@ func TestTransportProcessManagement(t *testing.T) {
 
 	// Test interrupt handling
 	t.Run("interrupt_handling", func(t *testing.T) {
-		if runtime.GOOS == windowsOS {
-			t.Skip("Interrupt not supported on Windows")
-		}
-
-		transport := setupTransportForTest(t, newTransportMockCLI())
+		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
 		defer disconnectTransportSafely(t, transport)
 
 		connectTransportSafely(ctx, t, transport)
@@ -48,7 +44,8 @@ func TestTransportProcessManagement(t *testing.T) {
 		err := transport.Interrupt(ctx)
 		assertNoTransportError(t, err)
 
-		// Process should still be manageable after interrupt
+		// Protocol interruption stops only the current turn and keeps the
+		// streaming transport available for subsequent queries.
 		assertTransportConnected(t, transport, true)
 	})
 }

@@ -158,6 +158,13 @@ type Transport interface {
 	GetValidator() *StreamValidator
 }
 
+// AbortableTransport is an optional transport capability for immediately
+// terminating an active connection. Client.Abort uses it when available and
+// falls back to Transport.Close for legacy custom transports.
+type AbortableTransport interface {
+	Abort() error
+}
+
 // RawControlMessage wraps raw control protocol messages for passthrough.
 type RawControlMessage = shared.RawControlMessage
 

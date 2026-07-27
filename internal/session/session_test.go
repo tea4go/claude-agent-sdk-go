@@ -1,13 +1,15 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
 )
 
 // Test constants for repeated string literals (goconst).
@@ -1167,7 +1169,7 @@ func TestGetWorktreePaths(t *testing.T) {
 		// a real git repo if available. We create a temp git repo.
 		dir := t.TempDir()
 		// Initialize a git repo.
-		initCmd := exec.Command("git", "init")
+		initCmd := cli.NewExecCommandContext(context.Background(), []string{"git", "init"})
 		initCmd.Dir = dir
 		if err := initCmd.Run(); err != nil {
 			t.Skip("git not available, skipping")

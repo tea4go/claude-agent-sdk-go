@@ -55,7 +55,7 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 | `query(prompt, session_id)` | `Query(ctx, prompt)` / `QueryWithSession(ctx, prompt, sessionID)` | Split into two methods |
 | `receive_messages()` | `ReceiveMessages(ctx)` | Returns channel |
 | `receive_response()` | `ReceiveResponse(ctx)` | Returns MessageIterator |
-| `interrupt()` | `Interrupt(ctx)` | Context-first |
+| `interrupt()` | `Interrupt(ctx)` | Control-protocol request; connection remains usable |
 | `rewind_files(uuid)` | `RewindFiles(ctx, messageUUID)` | Context-first |
 | `disconnect()` | `Disconnect()` | Identical |
 | `async with` context manager | `WithClient()` helper | Go-idiomatic resource management |
@@ -360,7 +360,7 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 | Session management | `resume`, `fork_session` | `WithResume()`, `WithForkSession()` | PARITY |
 | File checkpointing | `enable_file_checkpointing` | `WithFileCheckpointing()` | PARITY |
 | File rewinding | `rewind_files(uuid)` | `RewindFiles(ctx, uuid)` | PARITY |
-| Interrupt support | `interrupt()` | `Interrupt(ctx)` | PARITY |
+| Interrupt support | `interrupt()` | `Interrupt(ctx)` | PARITY (control protocol on all platforms) |
 | Structured output | `output_format` | `WithOutputFormat()`, `WithJSONSchema()` | PARITY |
 | Custom agents | `agents` | `WithAgents()`, `WithAgent()` | PARITY |
 | Plugins | `plugins` | `WithPlugins()`, `WithLocalPlugin()` | PARITY |

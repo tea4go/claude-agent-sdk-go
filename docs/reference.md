@@ -298,6 +298,7 @@ The `Client` interface provides methods for managing interactive conversations.
 type Client interface {
     Connect(ctx context.Context, prompt ...StreamMessage) error
     Disconnect() error
+    Abort() error
     Query(ctx context.Context, prompt string) error
     QueryWithSession(ctx context.Context, prompt string, sessionID string) error
     QueryStream(ctx context.Context, messages <-chan StreamMessage) error
@@ -325,10 +326,26 @@ func (c *ClientImpl) Connect(ctx context.Context, prompt ...StreamMessage) error
 
 #### `Disconnect()`
 
-Close the connection and cleanup resources.
+Close the connection and clean up resources. Normal shutdown allows one
+five-second graceful process-tree interval before force termination. Cancelling
+the context passed to `Connect` requests immediate process-tree termination.
 
 ```go
 func (c *ClientImpl) Disconnect() error
+```
+
+#### `Abort()`
+
+Immediately force-stop the active Claude CLI process tree, then clean up SDK
+resources. Use this for an explicit user cancellation when waiting for graceful
+session persistence is not desired. The built-in transport uses `SIGKILL` on
+its Unix process group and Job Object termination on Windows.
+
+Custom transports may implement `AbortableTransport`; transports that do not
+implement it remain compatible and fall back to `Close()`.
+
+```go
+func (c *ClientImpl) Abort() error
 ```
 
 #### `Query()`
@@ -373,7 +390,10 @@ func (c *ClientImpl) ReceiveResponse(ctx context.Context) MessageIterator
 
 #### `Interrupt()`
 
-Send interrupt signal to stop current operation.
+Stop the current streaming operation through the Claude control protocol while
+keeping the client connection usable. This behavior is cross-platform,
+including Windows. One-shot query transports do not expose the control protocol
+and cannot be interrupted through this method.
 
 ```go
 func (c *ClientImpl) Interrupt(ctx context.Context) error
@@ -2154,6 +2174,11 @@ type Transport interface {
     RewindFiles(ctx context.Context, userMessageID string) error
     Close() error
     GetValidator() *StreamValidator
+}
+
+// Optional immediate-termination capability for custom transports.
+type AbortableTransport interface {
+    Abort() error
 }
 ```
 

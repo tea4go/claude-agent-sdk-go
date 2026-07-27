@@ -15,6 +15,9 @@ const defaultSessionID = "default"
 type Client interface {
 	Connect(ctx context.Context, prompt ...StreamMessage) error
 	Disconnect() error
+	// Abort immediately terminates the active Claude CLI process tree. Unlike
+	// Disconnect, it does not wait for graceful session persistence.
+	Abort() error
 	Query(ctx context.Context, prompt string) error
 	QueryWithSession(ctx context.Context, prompt string, sessionID string) error
 	QueryStream(ctx context.Context, messages <-chan StreamMessage) error
@@ -296,8 +299,11 @@ func (c *ClientImpl) Disconnect() error {
 		c.mergeCancel()
 		c.mergeCancel = nil
 	}
+	// Do not close injectChan here. Skill handlers keep a snapshot of the
+	// channel while running and may still publish their final messages as
+	// Disconnect begins. Cancelling the merge goroutine is sufficient; the
+	// abandoned buffered channel is reclaimed after those senders finish.
 	if c.injectChan != nil {
-		close(c.injectChan)
 		c.injectChan = nil
 	}
 
@@ -312,6 +318,42 @@ func (c *ClientImpl) Disconnect() error {
 	c.errChan = nil
 	c.streamErrChan = nil
 	c.mergeDone = nil
+	return nil
+}
+
+// Abort immediately terminates the connection to the Claude Code CLI.
+// Custom transports can implement AbortableTransport for native force-stop
+// behavior. Legacy transports fall back to Close.
+func (c *ClientImpl) Abort() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.mergeCancel != nil {
+		c.mergeCancel()
+		c.mergeCancel = nil
+	}
+	if c.injectChan != nil {
+		c.injectChan = nil
+	}
+
+	var abortErr error
+	if c.transport != nil && c.connected {
+		if transport, ok := c.transport.(AbortableTransport); ok {
+			abortErr = transport.Abort()
+		} else {
+			abortErr = c.transport.Close()
+		}
+	}
+
+	c.connected = false
+	c.transport = nil
+	c.msgChan = nil
+	c.errChan = nil
+	c.streamErrChan = nil
+	c.mergeDone = nil
+	if abortErr != nil {
+		return fmt.Errorf("failed to abort transport: %w", abortErr)
+	}
 	return nil
 }
 

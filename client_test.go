@@ -623,6 +623,74 @@ func TestClientInterrupt(t *testing.T) {
 	assertClientMessageCount(t, longRunningTransport, 1)
 }
 
+func TestClientAbortUsesAbortableTransport(t *testing.T) {
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	transport := newClientMockTransport()
+	client := setupClientForTest(t, transport)
+	connectClientSafely(ctx, t, client)
+
+	if err := client.Abort(); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+
+	transport.mu.Lock()
+	abortCalls := transport.abortCalls
+	closeCalls := transport.closeCalls
+	transport.mu.Unlock()
+	if abortCalls != 1 {
+		t.Fatalf("transport Abort() calls = %d, want 1", abortCalls)
+	}
+	if closeCalls != 0 {
+		t.Fatalf("transport Close() calls = %d, want 0", closeCalls)
+	}
+	if err := client.Query(ctx, "after abort"); err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("Query() after Abort() error = %v, want not connected", err)
+	}
+	if err := client.Abort(); err != nil {
+		t.Fatalf("repeated Abort() error = %v", err)
+	}
+}
+
+func TestClientAbortFallsBackToClose(t *testing.T) {
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	base := newClientMockTransport()
+	transport := &closeOnlyClientTransport{Transport: base}
+	client := setupClientForTest(t, transport)
+	connectClientSafely(ctx, t, client)
+
+	if err := client.Abort(); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+	if transport.closeCalls != 1 {
+		t.Fatalf("legacy transport Close() calls = %d, want 1", transport.closeCalls)
+	}
+}
+
+func TestClientAbortWrapsTransportErrorAndDisconnects(t *testing.T) {
+	ctx, cancel := setupClientTestContext(t, 5*time.Second)
+	defer cancel()
+
+	abortErr := errors.New("force stop failed")
+	transport := newClientMockTransportWithOptions(WithClientAbortError(abortErr))
+	client := setupClientForTest(t, transport)
+	connectClientSafely(ctx, t, client)
+
+	err := client.Abort()
+	if !errors.Is(err, abortErr) {
+		t.Fatalf("Abort() error = %v, want wrapped %v", err, abortErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "failed to abort transport") {
+		t.Fatalf("Abort() error = %v, want abort context", err)
+	}
+	if queryErr := client.Query(ctx, "after failed abort"); queryErr == nil || !strings.Contains(queryErr.Error(), "not connected") {
+		t.Fatalf("Query() after failed Abort() error = %v, want not connected", queryErr)
+	}
+}
+
 // TestClientSessionID tests session ID handling in client operations
 // Covers T140: Client Session Management
 func TestClientSessionID(t *testing.T) {
@@ -1088,6 +1156,7 @@ type clientMockTransport struct {
 	connectError           error
 	sendError              error
 	interruptError         error
+	abortError             error
 	closeError             error
 	asyncError             error // For async error testing
 	setModelError          error
@@ -1097,6 +1166,18 @@ type clientMockTransport struct {
 	getMcpStatusResponse   *McpStatusResponse
 	getSlashCommandsError  error
 	getSlashCommandsResp   []SlashCommand
+	abortCalls             int
+	closeCalls             int
+}
+
+type closeOnlyClientTransport struct {
+	Transport
+	closeCalls int
+}
+
+func (c *closeOnlyClientTransport) Close() error {
+	c.closeCalls++
+	return c.Transport.Close()
 }
 
 func (c *clientMockTransport) Connect(ctx context.Context) error {
@@ -1184,15 +1265,31 @@ func (c *clientMockTransport) Interrupt(_ context.Context) error {
 	return nil
 }
 
+func (c *clientMockTransport) Abort() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.abortCalls++
+	if c.abortError != nil {
+		return c.abortError
+	}
+	c.closeUnlocked()
+	return nil
+}
+
 func (c *clientMockTransport) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.closeCalls++
 	if c.closeError != nil {
 		return c.closeError
 	}
+	c.closeUnlocked()
+	return nil
+}
 
+func (c *clientMockTransport) closeUnlocked() {
 	if c.closed {
-		return nil // Already closed
+		return
 	}
 
 	c.connected = false
@@ -1207,8 +1304,6 @@ func (c *clientMockTransport) Close() error {
 		close(c.errChan)
 		c.errChan = nil
 	}
-
-	return nil
 }
 
 // Helper methods
@@ -1319,6 +1414,10 @@ func WithClientSendError(err error) ClientMockTransportOption {
 
 func WithClientInterruptError(err error) ClientMockTransportOption {
 	return func(t *clientMockTransport) { t.interruptError = err }
+}
+
+func WithClientAbortError(err error) ClientMockTransportOption {
+	return func(t *clientMockTransport) { t.abortError = err }
 }
 
 func WithClientAsyncError(err error) ClientMockTransportOption {
