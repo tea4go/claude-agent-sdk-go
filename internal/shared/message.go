@@ -128,6 +128,7 @@ func (m *UserMessage) MarshalJSON() ([]byte, error) {
 // AssistantMessage represents a message from the assistant.
 type AssistantMessage struct {
 	MessageType     string                 `json:"type"`
+	ID              *string                `json:"id,omitempty"`
 	Content         []ContentBlock         `json:"content"`
 	Model           string                 `json:"model"`
 	Usage           *Usage                 `json:"usage,omitempty"`
@@ -144,6 +145,14 @@ func (m *AssistantMessage) Type() string {
 // HasUsage returns true if per-turn token usage is available.
 func (m *AssistantMessage) HasUsage() bool {
 	return m.Usage != nil
+}
+
+// GetID returns the Claude message ID or empty string if nil.
+func (m *AssistantMessage) GetID() string {
+	if m.ID != nil {
+		return *m.ID
+	}
+	return ""
 }
 
 // GetStopReason returns the stop reason or empty string if nil.

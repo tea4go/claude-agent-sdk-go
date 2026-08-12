@@ -928,6 +928,26 @@ func TestParseRateLimitEventMessage(t *testing.T) {
 	})
 }
 
+func TestParseAssistantMessagePreservesMessageID(t *testing.T) {
+	parser := setupParserTest(t)
+	data := map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"id":      "msg_usage_snapshot_1",
+			"model":   "claude-sonnet-4-5",
+			"content": []any{map[string]any{"type": "text", "text": "hello"}},
+		},
+	}
+
+	msg, err := parser.ParseMessage(data)
+	assertNoParseError(t, err)
+
+	assistantMsg := msg.(*shared.AssistantMessage)
+	if assistantMsg.ID == nil || *assistantMsg.ID != "msg_usage_snapshot_1" {
+		t.Fatalf("expected assistant message id to be preserved, got %v", assistantMsg.ID)
+	}
+}
+
 // TestParseMessages tests the convenience function
 func TestParseMessages(t *testing.T) {
 	// Test successful parsing

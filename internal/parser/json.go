@@ -237,6 +237,11 @@ func (p *Parser) parseAssistantMessage(data map[string]any) (*shared.AssistantMe
 		return nil, shared.NewMessageParseError("assistant message missing model field", data)
 	}
 
+	var idPtr *string
+	if id, ok := messageData["id"].(string); ok {
+		idPtr = &id
+	}
+
 	blocks := make([]shared.ContentBlock, len(contentArray))
 	for i, blockData := range contentArray {
 		block, err := p.parseContentBlock(blockData)
@@ -276,6 +281,7 @@ func (p *Parser) parseAssistantMessage(data map[string]any) (*shared.AssistantMe
 
 	return &shared.AssistantMessage{
 		Content:         blocks,
+		ID:              idPtr,
 		Model:           model,
 		Usage:           usagePtr,
 		StopReason:      stopReasonPtr,
