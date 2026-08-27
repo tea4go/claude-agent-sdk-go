@@ -1835,3 +1835,23 @@ func validateSkillsNoop(t *testing.T, cmd []string) {
 	assertContainsArgs(t, cmd, "--allowed-tools", "Read")
 	assertNotContainsArg(t, cmd, "--setting-sources")
 }
+
+// TestSessionIDFlagSupport tests the SessionID option mapping to the
+// --session-id CLI flag, and that resume keeps using --resume without
+// emitting --session-id.
+func TestSessionIDFlagSupport(t *testing.T) {
+	sessionID := "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"
+	options := &shared.Options{SessionID: &sessionID}
+	cmd := BuildCommand("/usr/local/bin/claude", options, false)
+	assertContainsArgs(t, cmd, "--session-id", sessionID)
+	assertNotContainsArg(t, cmd, "--resume")
+
+	resume := "existing-session"
+	resumeOptions := &shared.Options{Resume: &resume}
+	cmd = BuildCommand("/usr/local/bin/claude", resumeOptions, false)
+	assertContainsArgs(t, cmd, "--resume", resume)
+	assertNotContainsArg(t, cmd, "--session-id")
+
+	cmd = BuildCommand("/usr/local/bin/claude", &shared.Options{}, false)
+	assertNotContainsArg(t, cmd, "--session-id")
+}

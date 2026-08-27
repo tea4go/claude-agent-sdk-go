@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 )
 
 const (
@@ -213,6 +214,7 @@ type Options struct {
 	// Session & State Management
 	ContinueConversation bool            `json:"continue_conversation,omitempty"`
 	Resume               *string         `json:"resume,omitempty"`
+	SessionID            *string         `json:"session_id,omitempty"`
 	MaxTurns             int             `json:"max_turns,omitempty"`
 	Settings             *string         `json:"settings,omitempty"`
 	ForkSession          bool            `json:"fork_session,omitempty"`
@@ -448,6 +450,15 @@ type McpContent struct {
 }
 
 // Validate checks the options for valid values and constraints.
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isValidUUID reports whether value is a canonical lowercase/uppercase
+// hyphenated UUID (8-4-4-4-12 hex digits).
+func isValidUUID(value string) bool {
+	matched := uuidPattern.MatchString(value)
+	return matched
+}
+
 func (o *Options) Validate() error {
 	// Validate MaxThinkingTokens
 	if o.MaxThinkingTokens < 0 {
@@ -457,6 +468,16 @@ func (o *Options) Validate() error {
 	// Validate MaxTurns
 	if o.MaxTurns < 0 {
 		return fmt.Errorf("MaxTurns must be non-negative, got %d", o.MaxTurns)
+	}
+
+	// Validate SessionID and its mutual exclusion with Resume
+	if o.SessionID != nil {
+		if !isValidUUID(*o.SessionID) {
+			return fmt.Errorf("SessionID must be a valid UUID, got %q", *o.SessionID)
+		}
+		if o.Resume != nil {
+			return fmt.Errorf("SessionID and Resume cannot be used together")
+		}
 	}
 
 	// Validate tool conflicts (same tool in both allowed and disallowed)

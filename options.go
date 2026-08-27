@@ -276,6 +276,16 @@ func WithResume(sessionID string) Option {
 	}
 }
 
+// WithSessionID sets a specific session ID for a new conversation by mapping
+// to the CLI --session-id flag. The ID must be a valid UUID and is mutually
+// exclusive with WithResume (enforced by Options.Validate before the CLI
+// subprocess starts).
+func WithSessionID(sessionID string) Option {
+	return func(o *Options) {
+		o.SessionID = &sessionID
+	}
+}
+
 // WithCwd sets the working directory.
 func WithCwd(cwd string) Option {
 	return func(o *Options) {

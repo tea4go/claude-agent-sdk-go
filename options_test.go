@@ -3705,3 +3705,49 @@ func TestWithSdkMcpServer(t *testing.T) {
 		}
 	})
 }
+
+// TestSessionIDOptions tests WithSessionID option behavior and mutual
+// exclusion with WithResume.
+func TestSessionIDOptions(t *testing.T) {
+	validID := "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"
+
+	t.Run("valid_session_id", func(t *testing.T) {
+		options := NewOptions(WithSessionID(validID))
+		if options.SessionID == nil {
+			t.Fatal("expected SessionID to be set, got nil")
+		}
+		if *options.SessionID != validID {
+			t.Errorf("expected SessionID = %q, got %q", validID, *options.SessionID)
+		}
+		if options.Resume != nil {
+			t.Errorf("expected Resume = nil, got %q", *options.Resume)
+		}
+	})
+
+	t.Run("invalid_session_id_rejected", func(t *testing.T) {
+		for _, invalid := range []string{
+			"",
+			"not-a-uuid",
+			"0f0d7a5a33b54f0a9d3e6f2b8cf1a111",
+			"0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a11g",
+		} {
+			options := NewOptions(WithSessionID(invalid))
+			if err := options.Validate(); err == nil {
+				t.Errorf("Validate() should reject invalid session ID %q", invalid)
+			}
+		}
+	})
+
+	t.Run("mutual_exclusion_with_resume", func(t *testing.T) {
+		both := NewOptions(WithSessionID(validID), WithResume("existing-session"))
+		if err := both.Validate(); err == nil {
+			t.Error("Validate() should reject SessionID combined with Resume")
+		}
+		if err := NewOptions(WithSessionID(validID)).Validate(); err != nil {
+			t.Errorf("Validate(SessionID only) error = %v", err)
+		}
+		if err := NewOptions(WithResume("existing-session")).Validate(); err != nil {
+			t.Errorf("Validate(Resume only) error = %v", err)
+		}
+	})
+}
