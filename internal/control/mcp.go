@@ -1,5 +1,8 @@
 // Package control MCP message routing for SDK MCP servers.
 // This file handles JSONRPC method dispatch for tools/list, tools/call, etc.
+//
+// 本文件处理 SDK MCP 服务器的 MCP 消息路由，
+// 负责 tools/list、tools/call 等 JSONRPC 方法的分发。
 package control
 
 import (
@@ -10,6 +13,9 @@ import (
 
 // handleMcpMessageRequest routes MCP JSONRPC messages to SDK servers.
 // Follows handleCanUseToolRequest pattern with panic recovery.
+//
+// handleMcpMessageRequest 将 MCP JSONRPC 消息路由到 SDK 服务器，
+// 遵循 handleCanUseToolRequest 模式并带 panic 恢复。
 func (p *Protocol) handleMcpMessageRequest(ctx context.Context, requestID string, request map[string]any) error {
 	serverName := getString(request, "server_name")
 	if serverName == "" {
@@ -22,6 +28,7 @@ func (p *Protocol) handleMcpMessageRequest(ctx context.Context, requestID string
 	}
 
 	// Thread-safe server lookup
+	// 线程安全地查找服务器
 	p.mu.Lock()
 	server, exists := p.sdkMcpServers[serverName]
 	p.mu.Unlock()
@@ -32,6 +39,7 @@ func (p *Protocol) handleMcpMessageRequest(ctx context.Context, requestID string
 	}
 
 	// Route JSONRPC method with panic recovery
+	// 路由 JSONRPC 方法并做 panic 恢复
 	var mcpResponse map[string]any
 	var routeErr error
 	func() {
@@ -51,6 +59,8 @@ func (p *Protocol) handleMcpMessageRequest(ctx context.Context, requestID string
 }
 
 // routeMcpMethod dispatches JSONRPC methods to server handlers.
+//
+// routeMcpMethod 将 JSONRPC 方法分发到对应的服务器处理器。
 func (p *Protocol) routeMcpMethod(ctx context.Context, server McpServer, msg map[string]any) (map[string]any, error) {
 	method := getString(msg, "method")
 	params, _ := msg["params"].(map[string]any)
@@ -118,6 +128,7 @@ func (p *Protocol) routeMcpMethod(ctx context.Context, server McpServer, msg map
 
 	case "notifications/initialized":
 		// Notification - no response required per JSONRPC spec
+		// 通知消息——按 JSONRPC 规范无需响应
 		return map[string]any{"jsonrpc": "2.0", "result": map[string]any{}}, nil
 
 	default:
@@ -126,6 +137,8 @@ func (p *Protocol) routeMcpMethod(ctx context.Context, server McpServer, msg map
 }
 
 // sendMcpResponse sends an MCP success response.
+//
+// sendMcpResponse 发送一个 MCP 成功响应。
 func (p *Protocol) sendMcpResponse(ctx context.Context, requestID string, mcpResp map[string]any) error {
 	response := SDKControlResponse{
 		Type: MessageTypeControlResponse,
@@ -146,6 +159,10 @@ func (p *Protocol) sendMcpResponse(ctx context.Context, requestID string, mcpRes
 // slice of tool definitions. Kept standalone from the routeMcpMethod dispatch
 // switch so the switch stays within the gocyclo budget, and so additions to
 // the response shape do not perturb method-dispatch logic.
+//
+// buildToolsListResult 根据工具定义切片构建 JSONRPC tools/list 的响应负载。
+// 将其从 routeMcpMethod 的分发 switch 中抽离，既使 switch 保持在 gocyclo 预算内，
+// 也使响应结构的变更不影响方法分发逻辑。
 func buildToolsListResult(tools []McpToolDefinition, msgID any) (map[string]any, error) {
 	toolsData := make([]map[string]any, len(tools))
 	for i, t := range tools {
@@ -173,6 +190,9 @@ func buildToolsListResult(tools []McpToolDefinition, msgID any) (map[string]any,
 // annotationsToMap converts a ToolAnnotations value to a map[string]any with
 // json `omitempty` honored, so only the fields the caller set appear on the
 // wire. Empty fields are omitted from the resulting map.
+//
+// annotationsToMap 将 ToolAnnotations 值转换为 map[string]any，并尊重 json 的
+// `omitempty`，从而只有调用方设置过的字段才会出现在线上；空字段会从结果 map 中省略。
 func annotationsToMap(ann *ToolAnnotations) (map[string]any, error) {
 	raw, err := json.Marshal(ann)
 	if err != nil {
@@ -186,6 +206,8 @@ func annotationsToMap(ann *ToolAnnotations) (map[string]any, error) {
 }
 
 // sendMcpErrorResponse sends an MCP JSONRPC error response.
+//
+// sendMcpErrorResponse 发送一个 MCP JSONRPC 错误响应。
 func (p *Protocol) sendMcpErrorResponse(ctx context.Context, requestID string, msg map[string]any, code int, message string) error {
 	errorResp := map[string]any{
 		"jsonrpc": "2.0",

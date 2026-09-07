@@ -1,4 +1,6 @@
 // Package cli provides CLI discovery and command building functionality.
+//
+// cli 包提供 Claude CLI 的发现与命令构建功能。
 package cli
 
 import (
@@ -21,34 +23,46 @@ const windowsOS = "windows"
 
 // MinimumCLIVersion is the minimum supported Claude Code CLI version.
 // Features may not work correctly with older versions.
+//
+// MinimumCLIVersion 是受支持的最低 Claude Code CLI 版本，旧版本下部分功能可能无法正常工作。
 const MinimumCLIVersion = "2.0.76"
 
 var cliVersionCheckTimeout = 2 * time.Second
 
 // versionRegex matches semantic version X.Y.Z (mimics Python SDK regex).
+//
+// versionRegex 匹配语义化版本号 X.Y.Z（与 Python SDK 的正则一致）。
 var versionRegex = regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+)`)
 
 // DiscoveryPaths defines the standard search paths for Claude CLI.
+//
+// DiscoveryPaths 定义 Claude CLI 的标准搜索路径。
 var DiscoveryPaths = []string{
 	// Will be populated with dynamic paths in FindCLI()
+	// 将在 FindCLI() 中填充动态路径
 }
 
 // FindCLI searches for the Claude CLI binary in standard locations.
+//
+// FindCLI 在标准位置搜索 Claude CLI 可执行文件。
 func FindCLI() (string, error) {
 	// 1. Check PATH first - most common case
+	// 1. 先检查 PATH——最常见情况
 	if path, err := exec.LookPath("claude"); err == nil {
 		return path, nil
 	}
 
 	// 2. Check platform-specific common locations
+	// 2. 检查平台特定的常见位置
 	locations := getCommonCLILocations()
 
 	for _, location := range locations {
 		if info, err := os.Stat(location); err == nil && !info.IsDir() {
 			// Verify it's executable (Unix-like systems)
+			// 验证其可执行（类 Unix 系统）
 			if runtime.GOOS != windowsOS {
 				if info.Mode()&0o111 == 0 {
-					continue // Not executable
+					continue // Not executable // 不可执行
 				}
 			}
 			return location, nil
@@ -56,6 +70,7 @@ func FindCLI() (string, error) {
 	}
 
 	// 3. Check Node.js dependency
+	// 3. 检查 Node.js 依赖
 	if _, err := exec.LookPath("node"); err != nil {
 		return "", shared.NewCLINotFoundError("",
 			"Claude Code requires Node.js, which is not installed.\n\n"+
@@ -65,6 +80,7 @@ func FindCLI() (string, error) {
 	}
 
 	// 4. Provide installation guidance
+	// 4. 提供安装指引
 	return "", shared.NewCLINotFoundError("",
 		"Claude Code not found. Install with:\n"+
 			"  npm install -g @anthropic-ai/claude-code\n\n"+
@@ -74,6 +90,8 @@ func FindCLI() (string, error) {
 }
 
 // getCommonCLILocations returns platform-specific CLI search locations
+//
+// getCommonCLILocations 返回平台特定的 CLI 搜索位置。
 func getCommonCLILocations() []string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -107,22 +125,29 @@ func getCommonCLILocations() []string {
 }
 
 // BuildCommand constructs the CLI command with all necessary flags.
+//
+// BuildCommand 构建包含所有必要参数的 CLI 命令（用于流式/一次性模式）。
 func BuildCommand(cliPath string, options *shared.Options, closeStdin bool) []string {
 	cmd := []string{cliPath}
 
 	// Base arguments - always include these
+	// 基础参数——总是包含
 	cmd = append(cmd, "--output-format", "stream-json", "--verbose")
 
 	// Input mode configuration
+	// 输入模式配置
 	if closeStdin {
 		// One-shot mode (Query function)
+		// 一次性模式（Query 函数）
 		cmd = append(cmd, "--print")
 	} else {
 		// Streaming mode (Client interface)
+		// 流式模式（Client 接口）
 		cmd = append(cmd, "--input-format", "stream-json")
 	}
 
 	// Add all configuration options as CLI flags
+	// 将所有配置选项作为 CLI 参数添加
 	if options != nil {
 		cmd = addOptionsToCommand(cmd, options)
 	}
@@ -131,27 +156,36 @@ func BuildCommand(cliPath string, options *shared.Options, closeStdin bool) []st
 }
 
 // BuildCommandWithPrompt constructs the CLI command for one-shot queries with prompt as argument.
+//
+// BuildCommandWithPrompt 为一次性查询构建 CLI 命令，将 prompt 作为参数传入。
 func BuildCommandWithPrompt(cliPath string, options *shared.Options, prompt string) []string {
 	cmd := []string{cliPath}
 
 	// Base arguments - always include these
+	// 基础参数——总是包含
 	cmd = append(cmd, "--output-format", "stream-json", "--verbose")
 
 	// Add all configuration options as CLI flags before the prompt
+	// 在 prompt 之前将所有配置选项作为 CLI 参数添加
 	if options != nil {
 		cmd = addOptionsToCommand(cmd, options)
 	}
 
 	// Prompt must be last so the CLI parses all flags (e.g. --mcp-config) correctly
+	// prompt 必须放在最后，以便 CLI 正确解析所有参数（如 --mcp-config）
 	cmd = append(cmd, "--print", prompt)
 
 	return cmd
 }
 
 // addOptionsToCommand adds all Options fields as CLI flags
+//
+// addOptionsToCommand 将所有 Options 字段作为 CLI 参数添加。
 func addOptionsToCommand(cmd []string, options *shared.Options) []string {
 	// Apply Skills option by transforming AllowedTools and SettingSources before
 	// any flags are emitted. Matches the Python SDK's _apply_skills_defaults.
+	// 在发出任何参数之前，通过变换 AllowedTools 与 SettingSources 来应用 Skills 选项，
+	// 与 Python SDK 的 _apply_skills_defaults 一致。
 	if options.Skills != nil {
 		copied := *options
 		copied.AllowedTools, copied.SettingSources = applySkillsDefaults(options)
@@ -405,6 +439,8 @@ func addExtraFlags(cmd []string, options *shared.Options) []string {
 }
 
 // ValidateNodeJS checks if Node.js is available.
+//
+// ValidateNodeJS 检查 Node.js 是否可用。
 func ValidateNodeJS() error {
 	if _, err := exec.LookPath("node"); err != nil {
 		return shared.NewCLINotFoundError("node",
@@ -417,6 +453,8 @@ func ValidateNodeJS() error {
 }
 
 // ValidateWorkingDirectory checks if the working directory exists and is valid.
+//
+// ValidateWorkingDirectory 检查工作目录是否存在且有效。
 func ValidateWorkingDirectory(cwd string) error {
 	if cwd == "" {
 		return nil // No validation needed if no cwd specified
@@ -446,6 +484,9 @@ func ValidateWorkingDirectory(cwd string) error {
 // CheckCLIVersion checks if CLI version is below minimum and returns a warning.
 // Mimics Python SDK _check_claude_version() behavior.
 // Non-blocking - errors are silently ignored.
+//
+// CheckCLIVersion 检查 CLI 版本是否低于最低要求并返回警告。
+// 模仿 Python SDK 的 _check_claude_version() 行为；非阻塞——错误会被静默忽略。
 func CheckCLIVersion(ctx context.Context, cliPath string) (warning string) {
 	if os.Getenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK") != "" {
 		return ""
@@ -490,6 +531,12 @@ func CheckCLIVersion(ctx context.Context, cliPath string) (warning string) {
 // When Skills is non-nil and SettingSources is unset, defaults SettingSources to
 // [user, project] so the CLI discovers installed Skills. Mirrors the Python SDK's
 // _apply_skills_defaults in subprocess_cli.py.
+//
+// applySkillsDefaults 在不修改输入的前提下，为 Skills 选项计算实际生效的
+// AllowedTools 与 SettingSources。当 Skills 为 "all" 时追加裸的 "Skill" 工具；
+// 为 []string 时为每个条目追加 "Skill(name)"。当 Skills 非 nil 且 SettingSources 未设置时，
+// 将 SettingSources 默认为 [user, project]，以便 CLI 发现已安装的 Skill。
+// 对应 Python SDK subprocess_cli.py 中的 _apply_skills_defaults。
 func applySkillsDefaults(options *shared.Options) ([]string, []shared.SettingSource) {
 	allowedTools := append([]string(nil), options.AllowedTools...)
 	settingSources := options.SettingSources
@@ -531,6 +578,9 @@ func containsString(haystack []string, needle string) bool {
 // compareVersionParts compares two X.Y.Z versions.
 // Returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2.
 // Mimics Python SDK: [int(x) for x in version.split(".")] comparison.
+//
+// compareVersionParts 比较两个 X.Y.Z 版本号。
+// v1 < v2 返回 -1，相等返回 0，v1 > v2 返回 1。
 func compareVersionParts(v1, v2 string) int {
 	p1 := strings.Split(v1, ".")
 	p2 := strings.Split(v2, ".")

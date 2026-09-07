@@ -1,9 +1,13 @@
 // Package control provides hook types for lifecycle event handling.
+//
+// 本文件定义 control 包用于生命周期事件处理的钩子相关类型。
 package control
 
 import "context"
 
 // HookEvent represents lifecycle events that can trigger hooks.
+//
+// HookEvent 表示可触发钩子的生命周期事件。
 type HookEvent string
 
 const (
@@ -31,6 +35,8 @@ const (
 )
 
 // BaseHookInput contains common fields present across all hook events.
+//
+// BaseHookInput 包含所有钩子事件共有的基础字段。
 type BaseHookInput struct {
 	// SessionID is the unique identifier for the session.
 	SessionID string `json:"session_id"`
@@ -43,6 +49,8 @@ type BaseHookInput struct {
 }
 
 // PreToolUseHookInput is the input for PreToolUse hook events.
+//
+// PreToolUseHookInput 是 PreToolUse 钩子事件的输入。
 type PreToolUseHookInput struct {
 	BaseHookInput
 	// HookEventName is always "PreToolUse".
@@ -56,6 +64,8 @@ type PreToolUseHookInput struct {
 }
 
 // PostToolUseHookInput is the input for PostToolUse hook events.
+//
+// PostToolUseHookInput 是 PostToolUse 钩子事件的输入。
 type PostToolUseHookInput struct {
 	BaseHookInput
 	// HookEventName is always "PostToolUse".
@@ -71,6 +81,8 @@ type PostToolUseHookInput struct {
 }
 
 // PostToolUseFailureHookInput is the input for PostToolUseFailure hook events.
+//
+// PostToolUseFailureHookInput 是 PostToolUseFailure 钩子事件的输入（工具执行失败时触发）。
 type PostToolUseFailureHookInput struct {
 	BaseHookInput
 	// HookEventName is always "PostToolUseFailure".
@@ -89,6 +101,8 @@ type PostToolUseFailureHookInput struct {
 }
 
 // UserPromptSubmitHookInput is the input for UserPromptSubmit hook events.
+//
+// UserPromptSubmitHookInput 是 UserPromptSubmit 钩子事件的输入。
 type UserPromptSubmitHookInput struct {
 	BaseHookInput
 	// HookEventName is always "UserPromptSubmit".
@@ -98,6 +112,8 @@ type UserPromptSubmitHookInput struct {
 }
 
 // StopHookInput is the input for Stop hook events.
+//
+// StopHookInput 是 Stop 钩子事件的输入。
 type StopHookInput struct {
 	BaseHookInput
 	// HookEventName is always "Stop".
@@ -107,6 +123,8 @@ type StopHookInput struct {
 }
 
 // SubagentStopHookInput is the input for SubagentStop hook events.
+//
+// SubagentStopHookInput 是 SubagentStop 钩子事件的输入。
 type SubagentStopHookInput struct {
 	BaseHookInput
 	// HookEventName is always "SubagentStop".
@@ -122,6 +140,8 @@ type SubagentStopHookInput struct {
 }
 
 // PreCompactHookInput is the input for PreCompact hook events.
+//
+// PreCompactHookInput 是 PreCompact 钩子事件的输入（上下文压缩前触发）。
 type PreCompactHookInput struct {
 	BaseHookInput
 	// HookEventName is always "PreCompact".
@@ -133,6 +153,8 @@ type PreCompactHookInput struct {
 }
 
 // NotificationHookInput is the input for Notification hook events.
+//
+// NotificationHookInput 是 Notification 钩子事件的输入。
 type NotificationHookInput struct {
 	BaseHookInput
 	// HookEventName is always "Notification".
@@ -147,6 +169,8 @@ type NotificationHookInput struct {
 }
 
 // SubagentStartHookInput is the input for SubagentStart hook events.
+//
+// SubagentStartHookInput 是 SubagentStart 钩子事件的输入。
 type SubagentStartHookInput struct {
 	BaseHookInput
 	// HookEventName is always "SubagentStart".
@@ -158,6 +182,8 @@ type SubagentStartHookInput struct {
 }
 
 // PermissionRequestHookInput is the input for PermissionRequest hook events.
+//
+// PermissionRequestHookInput 是 PermissionRequest 钩子事件的输入。
 type PermissionRequestHookInput struct {
 	BaseHookInput
 	// HookEventName is always "PermissionRequest".
@@ -172,6 +198,8 @@ type PermissionRequestHookInput struct {
 }
 
 // PreToolUseHookSpecificOutput contains PreToolUse-specific output fields.
+//
+// PreToolUseHookSpecificOutput 包含 PreToolUse 专有的输出字段。
 type PreToolUseHookSpecificOutput struct {
 	// HookEventName is always "PreToolUse".
 	HookEventName string `json:"hookEventName"`
@@ -186,6 +214,8 @@ type PreToolUseHookSpecificOutput struct {
 }
 
 // PostToolUseHookSpecificOutput contains PostToolUse-specific output fields.
+//
+// PostToolUseHookSpecificOutput 包含 PostToolUse 专有的输出字段。
 type PostToolUseHookSpecificOutput struct {
 	// HookEventName is always "PostToolUse".
 	HookEventName string `json:"hookEventName"`
@@ -198,6 +228,9 @@ type PostToolUseHookSpecificOutput struct {
 
 // PostToolUseFailureHookSpecificOutput contains PostToolUseFailure-specific output fields.
 // Structurally identical to PostToolUseHookSpecificOutput; only the HookEventName literal differs.
+//
+// PostToolUseFailureHookSpecificOutput 包含 PostToolUseFailure 专有的输出字段；
+// 结构上与 PostToolUseHookSpecificOutput 完全相同，仅 HookEventName 字面值不同。
 type PostToolUseFailureHookSpecificOutput struct {
 	// HookEventName is always "PostToolUseFailure".
 	HookEventName string `json:"hookEventName"`
@@ -206,6 +239,8 @@ type PostToolUseFailureHookSpecificOutput struct {
 }
 
 // UserPromptSubmitHookSpecificOutput contains UserPromptSubmit-specific output fields.
+//
+// UserPromptSubmitHookSpecificOutput 包含 UserPromptSubmit 专有的输出字段。
 type UserPromptSubmitHookSpecificOutput struct {
 	// HookEventName is always "UserPromptSubmit".
 	HookEventName string `json:"hookEventName"`
@@ -214,6 +249,8 @@ type UserPromptSubmitHookSpecificOutput struct {
 }
 
 // NotificationHookSpecificOutput contains Notification-specific output fields.
+//
+// NotificationHookSpecificOutput 包含 Notification 专有的输出字段。
 type NotificationHookSpecificOutput struct {
 	// HookEventName is always "Notification".
 	HookEventName string `json:"hookEventName"`
@@ -222,6 +259,8 @@ type NotificationHookSpecificOutput struct {
 }
 
 // SubagentStartHookSpecificOutput contains SubagentStart-specific output fields.
+//
+// SubagentStartHookSpecificOutput 包含 SubagentStart 专有的输出字段。
 type SubagentStartHookSpecificOutput struct {
 	// HookEventName is always "SubagentStart".
 	HookEventName string `json:"hookEventName"`
@@ -231,6 +270,9 @@ type SubagentStartHookSpecificOutput struct {
 
 // PermissionRequestHookSpecificOutput contains PermissionRequest-specific output fields.
 // Decision is required (not omitempty).
+//
+// PermissionRequestHookSpecificOutput 包含 PermissionRequest 专有的输出字段；
+// Decision 为必填字段（无 omitempty）。
 type PermissionRequestHookSpecificOutput struct {
 	// HookEventName is always "PermissionRequest".
 	HookEventName string `json:"hookEventName"`
@@ -239,6 +281,8 @@ type PermissionRequestHookSpecificOutput struct {
 }
 
 // HookJSONOutput is the synchronous hook output structure.
+//
+// HookJSONOutput 是同步钩子的输出结构。
 type HookJSONOutput struct {
 	// Continue indicates whether Claude should proceed (default: true).
 	Continue *bool `json:"continue,omitempty"`
@@ -259,6 +303,8 @@ type HookJSONOutput struct {
 }
 
 // AsyncHookJSONOutput indicates the hook will respond asynchronously.
+//
+// AsyncHookJSONOutput 表示钩子将以异步方式响应。
 type AsyncHookJSONOutput struct {
 	// Async must be true for async hook output.
 	Async bool `json:"async"`
@@ -267,6 +313,8 @@ type AsyncHookJSONOutput struct {
 }
 
 // HookContext provides context information for hook callbacks.
+//
+// HookContext 为钩子回调提供上下文信息。
 type HookContext struct {
 	// Signal is reserved for future abort signal support.
 	// Currently always holds the parent context for cancellation.
@@ -284,6 +332,18 @@ type HookContext struct {
 // Returns:
 //   - HookJSONOutput: The hook's response
 //   - error: Non-nil if the callback encounters an error
+//
+// HookCallback 是钩子回调的函数签名。
+//
+// 参数：
+//   - ctx: 用于取消与超时的上下文
+//   - input: 钩子输入（PreToolUseHookInput、PostToolUseHookInput 等）
+//   - toolUseID: 可选的工具调用标识（仅工具相关钩子具备）
+//   - hookCtx: 带 signal 支持的钩子上下文
+//
+// 返回：
+//   - HookJSONOutput: 钩子的响应
+//   - error: 回调发生错误时非 nil
 type HookCallback func(
 	ctx context.Context,
 	input any,
@@ -292,6 +352,8 @@ type HookCallback func(
 ) (HookJSONOutput, error)
 
 // HookMatcher defines which hooks to trigger for a given pattern.
+//
+// HookMatcher 定义对于给定匹配模式应触发哪些钩子。
 type HookMatcher struct {
 	// Matcher is a tool name pattern (e.g., "Bash", "Write|Edit|MultiEdit").
 	// Empty string matches all tools.
@@ -308,6 +370,8 @@ type HookMatcher struct {
 
 // HookMatcherConfig is the serializable format for the initialize request.
 // This is what gets sent to the CLI during initialization.
+//
+// HookMatcherConfig 是 initialize 请求使用的可序列化格式，即初始化时发送给 CLI 的内容。
 type HookMatcherConfig struct {
 	// Matcher is a tool name pattern.
 	Matcher string `json:"matcher"`
@@ -318,6 +382,8 @@ type HookMatcherConfig struct {
 }
 
 // HookRegistration represents a hook registration for initialization.
+//
+// HookRegistration 表示一个用于初始化的钩子注册项。
 type HookRegistration struct {
 	// CallbackID is the unique identifier for this callback.
 	CallbackID string `json:"callback_id"`
