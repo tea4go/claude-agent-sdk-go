@@ -14,14 +14,19 @@ import (
 )
 
 // handleStdout processes stdout in a separate goroutine
+//
+// handleStdout 在独立 goroutine 中处理 stdout（JSONL 流），
+// 将解析出的消息发送到 msgChan，并将控制消息路由给控制协议。
 func (t *Transport) handleStdout() {
 	defer t.wg.Done()
 	defer close(t.msgChan)
 	defer close(t.errChan)
-	defer t.validator.MarkStreamEnd() // Mark stream end for validation
+	defer t.validator.MarkStreamEnd() // Mark stream end for validation // 标记流结束以供校验
 
 	// Stdout is JSONL. Use Reader rather than Scanner so oversized messages
 	// fail through the SDK buffer limit instead of Scanner's token limit.
+	// Stdout 为 JSONL。使用 Reader 而非 Scanner，以便超大消息通过 SDK 缓冲区
+	// 限制报错，而不是受限于 Scanner 的 token 上限。
 	reader := bufio.NewReader(t.stdout)
 	lineLimit := parser.MaxBufferSize
 	if t.options != nil && t.options.MaxBufferSize != nil {
@@ -62,9 +67,12 @@ func (t *Transport) handleStdout() {
 			// If this is an error ResultMessage before we're fully connected,
 			// it means the CLI failed during init (e.g., invalid session ID).
 			// Route the error to the control protocol to unblock Initialize().
+			// 若在尚未完全连接前就收到错误 ResultMessage，说明 CLI 在初始化阶段
+			// 失败（如无效会话 ID），将错误路由给控制协议以解除 Initialize() 阻塞。
 			t.routeInitError(msg)
 
 			// Check if this is a control message that should be routed to the protocol
+			// 检查是否为应路由给控制协议的控制消息
 			if rawCtrl, ok := msg.(*shared.RawControlMessage); ok {
 				// Route control messages to the protocol for request/response correlation
 				if t.protocol != nil {
@@ -248,6 +256,9 @@ func normalizeSlashCommandName(name string) string {
 // handleStderrCallback processes stderr in a separate goroutine.
 // Reads line-by-line, strips trailing whitespace, skips empty lines, and
 // silently ignores scanner errors.
+//
+// handleStderrCallback 在独立 goroutine 中处理 stderr：逐行读取、去除尾部空白、
+// 跳过空行，并静默忽略扫描错误。
 func (t *Transport) handleStderrCallback() {
 	defer t.wg.Done()
 
@@ -283,6 +294,9 @@ func (t *Transport) handleStderrCallback() {
 // routeInitError checks if a message is an error ResultMessage arriving before
 // the transport is fully connected, and routes it to the control protocol to
 // unblock Initialize().
+//
+// routeInitError 检查消息是否为在 transport 完全连接前到达的错误 ResultMessage，
+// 并将其路由给控制协议以解除 Initialize() 阻塞。
 func (t *Transport) routeInitError(msg shared.Message) {
 	resultMsg, ok := msg.(*shared.ResultMessage)
 	if !ok || t.connected || !resultMsg.IsError || t.protocol == nil {
@@ -293,6 +307,9 @@ func (t *Transport) routeInitError(msg shared.Message) {
 
 // formatInitError builds a meaningful error string from a ResultMessage that
 // arrived during initialization. Prefers Errors, falls back to Result, then Subtype.
+//
+// formatInitError 从初始化期间到达的 ResultMessage 构建有意义的错误字符串：
+// 优先使用 Errors，其次 Result，最后回退到 Subtype。
 func formatInitError(msg *shared.ResultMessage) string {
 	if len(msg.Errors) > 0 {
 		return strings.Join(msg.Errors, "; ")
@@ -323,6 +340,9 @@ func (t *Transport) readStderrText(limit int64) string {
 
 // setupStderr configures stderr handling based on options.
 // Precedence: StderrCallback > DebugWriter > temp file (default).
+//
+// setupStderr 根据 options 配置 stderr 处理方式。
+// 优先级：StderrCallback > DebugWriter > 临时文件（默认）。
 func (t *Transport) setupStderr() error {
 	switch {
 	case t.options != nil && t.options.StderrCallback != nil:
@@ -351,6 +371,10 @@ func (t *Transport) setupStderr() error {
 // setupIoPipes configures stdin, stdout, and stderr pipes for the subprocess.
 // For streaming mode, creates a stdin pipe for sending messages. Always creates
 // stdout pipe for receiving responses. Stderr is configured via setupStderr.
+//
+// setupIoPipes 为子进程配置 stdin、stdout、stderr 管道。
+// 流式模式下创建 stdin 管道用于发送消息；总是创建 stdout 管道用于接收响应；
+// stderr 通过 setupStderr 配置。
 func (t *Transport) setupIoPipes() error {
 	var err error
 	if t.promptArg == nil {

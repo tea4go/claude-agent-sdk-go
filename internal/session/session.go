@@ -2,6 +2,10 @@
 //
 // Sessions are stored as JSONL files at ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl.
 // The encoded-cwd replaces every non-alphanumeric character with "-".
+//
+// session 包提供从磁盘读取 Claude Code 会话数据的函数。
+// 会话以 JSONL 文件形式存于 ~/.claude/projects/<编码后的工作目录>/<会话ID>.jsonl；
+// 编码后的工作目录将每个非字母数字字符替换为 "-"。
 package session
 
 import (
@@ -24,9 +28,14 @@ import (
 
 // errSessionNotFound is a sentinel error returned by findSessionFile when
 // the session JSONL file does not exist in any project directory.
+//
+// errSessionNotFound 是 findSessionFile 在任何项目目录中都找不到会话 JSONL 文件时
+// 返回的哨兵错误。
 var errSessionNotFound = errors.New("session not found")
 
 // SDKSessionInfo holds metadata about a session.
+//
+// SDKSessionInfo 保存一个会话的元数据。
 type SDKSessionInfo struct {
 	SessionID    string  `json:"session_id"`
 	Summary      string  `json:"summary"`
@@ -42,17 +51,23 @@ type SDKSessionInfo struct {
 }
 
 // ContentType discriminates the MessageContent union.
+//
+// ContentType 用于判别 MessageContent 联合体的实际类型。
 type ContentType int
 
 const (
 	// ContentTypeString indicates the message content is a plain string.
+	// ContentTypeString 表示消息内容为普通字符串。
 	ContentTypeString ContentType = iota + 1
 	// ContentTypeBlocks indicates the message content is an array of content blocks.
+	// ContentTypeBlocks 表示消息内容为内容块数组。
 	ContentTypeBlocks
 )
 
 // MessageContent is a sum type representing the content of a session message.
 // Kind indicates which field is populated.
+//
+// MessageContent 是表示会话消息内容的和类型（sum type），Kind 指示哪个字段被填充。
 type MessageContent struct {
 	Kind   ContentType
 	String string         // populated when Kind == ContentTypeString
@@ -60,6 +75,8 @@ type MessageContent struct {
 }
 
 // Block type constants for ContentBlock.Type.
+//
+// ContentBlock.Type 的内容块类型常量。
 const (
 	BlockTypeText                         = "text"
 	BlockTypeThinking                     = "thinking"
@@ -79,6 +96,9 @@ const (
 
 // ContentBlock represents a typed content block from a session message.
 // The Type field discriminates the variant. Unknown types are preserved in Raw.
+//
+// ContentBlock 表示会话消息中一个带类型的内容块。
+// Type 字段用于判别变体；未知类型保留在 Raw 中。
 type ContentBlock struct {
 	// Type discriminates the block variant.
 	// Use the BlockType* constants to compare against known types.
@@ -112,6 +132,8 @@ type ContentBlock struct {
 }
 
 // Message represents a message from a session transcript.
+//
+// Message 表示会话记录（transcript）中的一条消息。
 type Message struct {
 	Type      string `json:"type"` // "user", "assistant", etc. (there are many other types beyond just these two)
 	UUID      string `json:"uuid"`
@@ -126,6 +148,8 @@ type Message struct {
 }
 
 // Option configures session query behavior.
+//
+// Option 用于配置会话查询行为。
 type Option func(*sessionOpts)
 
 type sessionOpts struct {
@@ -141,6 +165,8 @@ func defaultOpts() sessionOpts {
 
 // includeWorktreesEnabled returns whether worktree scanning is enabled.
 // Defaults to true when not explicitly set.
+//
+// includeWorktreesEnabled 返回是否启用 worktree 扫描；未显式设置时默认为 true。
 func (o sessionOpts) includeWorktreesEnabled() bool {
 	if o.includeWorktrees == nil {
 		return true
@@ -150,6 +176,8 @@ func (o sessionOpts) includeWorktreesEnabled() bool {
 
 // WithSessionDirectory scopes the query to a specific project directory.
 // When omitted, sessions across all projects are searched.
+//
+// WithSessionDirectory 将查询限定到特定项目目录；省略时则搜索所有项目的会话。
 func WithSessionDirectory(dir string) Option {
 	return func(o *sessionOpts) {
 		o.directory = dir
@@ -157,6 +185,8 @@ func WithSessionDirectory(dir string) Option {
 }
 
 // WithSessionLimit sets the maximum number of results to return.
+//
+// WithSessionLimit 设置返回结果的最大数量。
 func WithSessionLimit(n int) Option {
 	return func(o *sessionOpts) {
 		o.limit = n
@@ -164,6 +194,8 @@ func WithSessionLimit(n int) Option {
 }
 
 // WithSessionOffset skips the first n messages (GetMessages only).
+//
+// WithSessionOffset 跳过前 n 条消息（仅对 GetMessages 有效）。
 func WithSessionOffset(n int) Option {
 	return func(o *sessionOpts) {
 		o.offset = n
@@ -173,6 +205,9 @@ func WithSessionOffset(n int) Option {
 // WithIncludeWorktrees controls whether git worktree directories are included
 // when searching for sessions. Defaults to true. Only has effect when a
 // directory is specified via WithSessionDirectory.
+//
+// WithIncludeWorktrees 控制搜索会话时是否包含 git worktree 目录，默认为 true。
+// 仅当通过 WithSessionDirectory 指定了目录时才生效。
 func WithIncludeWorktrees(include bool) Option {
 	return func(o *sessionOpts) {
 		o.includeWorktrees = &include
@@ -182,6 +217,9 @@ func WithIncludeWorktrees(include bool) Option {
 // ListSessions returns metadata for sessions, sorted by LastModified descending.
 // Unreadable project directories and individual session files are silently skipped
 // to provide best-effort results (matches the Python SDK's behavior).
+//
+// ListSessions 返回会话元数据，按 LastModified 降序排列。
+// 不可读的项目目录与单个会话文件会被静默跳过，以提供尽力而为的结果（与 Python SDK 一致）。
 func ListSessions(opts ...Option) ([]SDKSessionInfo, error) {
 	o := defaultOpts()
 	for _, fn := range opts {
@@ -217,6 +255,8 @@ func ListSessions(opts ...Option) ([]SDKSessionInfo, error) {
 }
 
 // GetMessages reads user and assistant messages from a session transcript.
+//
+// GetMessages 从会话记录中读取用户与助手消息。
 func GetMessages(sessionID string, opts ...Option) ([]Message, error) {
 	o := defaultOpts()
 	for _, fn := range opts {
@@ -251,6 +291,8 @@ func GetMessages(sessionID string, opts ...Option) ([]Message, error) {
 
 // GetSessionInfo returns metadata for a single session by ID.
 // Returns nil (not an error) if the session is not found.
+//
+// GetSessionInfo 按 ID 返回单个会话的元数据；会话不存在时返回 nil（而非错误）。
 func GetSessionInfo(sessionID string, opts ...Option) (*SDKSessionInfo, error) {
 	o := defaultOpts()
 	for _, fn := range opts {
@@ -269,6 +311,8 @@ func GetSessionInfo(sessionID string, opts ...Option) (*SDKSessionInfo, error) {
 }
 
 // configDir returns the Claude configuration directory.
+//
+// configDir 返回 Claude 配置目录（优先使用 CLAUDE_CONFIG_DIR，否则为 ~/.claude）。
 func configDir() (string, error) {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		return dir, nil
@@ -287,6 +331,9 @@ const worktreeTimeout = 5 * time.Second
 // and returns all worktree paths. Returns an empty slice (not an error) if git
 // is not available, the directory is not a git repo, or the command fails.
 // Matches the Python SDK's _get_worktree_paths.
+//
+// getWorktreePaths 在指定目录运行 `git worktree list --porcelain` 并返回所有 worktree 路径。
+// 若 git 不可用、目录非 git 仓库或命令失败，则返回空切片（而非错误）。
 func getWorktreePaths(dir string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
@@ -311,6 +358,8 @@ func getWorktreePaths(dir string) []string {
 }
 
 // encodeCwd encodes a directory path by replacing non-alphanumeric characters with "-".
+//
+// encodeCwd 将目录路径中的非字母数字字符替换为 "-" 进行编码。
 func encodeCwd(cwd string) string {
 	var b strings.Builder
 	b.Grow(len(cwd))
@@ -327,6 +376,9 @@ func encodeCwd(cwd string) string {
 // projectDirsForOpts returns the project directories to search based on options.
 // When a directory is specified and includeWorktrees is enabled, it also includes
 // project directories for all git worktree paths.
+//
+// projectDirsForOpts 根据选项返回需要搜索的项目目录。
+// 当指定了目录且启用 includeWorktrees 时，还会包含所有 git worktree 路径对应的项目目录。
 func projectDirsForOpts(o sessionOpts) ([]string, error) {
 	cfgDir, err := configDir()
 	if err != nil {
@@ -391,6 +443,9 @@ func projectDirsForOpts(o sessionOpts) ([]string, error) {
 
 // readDirNames is a replacement for os.ReadDir which is vulnerable to GO-2026-4602.
 // See https://pkg.go.dev/vuln/GO-2026-4602. Remove once upgraded to go1.26.0 or later.
+//
+// readDirNames 是 os.ReadDir 的替代实现（os.ReadDir 存在 GO-2026-4602 漏洞）。
+// 参见 https://pkg.go.dev/vuln/GO-2026-4602；升级到 go1.26.0 及以上后可移除。
 func readDirNames(path string) (names []string, err error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -406,6 +461,8 @@ func readDirNames(path string) (names []string, err error) {
 
 // deduplicateBySessionID deduplicates sessions by SessionID, keeping the entry
 // with the newest LastModified value. Matches the Python SDK's _deduplicate_by_session_id.
+//
+// deduplicateBySessionID 按 SessionID 去重，保留 LastModified 最新的条目。
 func deduplicateBySessionID(sessions []SDKSessionInfo) []SDKSessionInfo {
 	if len(sessions) == 0 {
 		return sessions
@@ -426,6 +483,9 @@ func deduplicateBySessionID(sessions []SDKSessionInfo) []SDKSessionInfo {
 // listSessionsInDir lists all sessions in a single project directory.
 // Individual session files that fail to parse (corrupt JSONL, permission errors)
 // are silently skipped to provide best-effort results.
+//
+// listSessionsInDir 列出单个项目目录中的所有会话。
+// 解析失败的单个会话文件（JSONL 损坏、权限错误）会被静默跳过，以提供尽力而为的结果。
 func listSessionsInDir(dir string) ([]SDKSessionInfo, error) {
 	names, err := readDirNames(dir)
 	if err != nil {
@@ -450,6 +510,8 @@ func listSessionsInDir(dir string) ([]SDKSessionInfo, error) {
 }
 
 // findSessionFile locates the JSONL file for a session ID.
+//
+// findSessionFile 定位某个会话 ID 对应的 JSONL 文件。
 func findSessionFile(sessionID string, o sessionOpts) (string, error) {
 	dirs, err := projectDirsForOpts(o)
 	if err != nil {
@@ -473,6 +535,9 @@ const metadataReadSize int64 = 64 * 1024
 // buildSessionInfoFromFile builds SDKSessionInfo by reading a JSONL file.
 // Uses head/tail reads for efficiency — only reads the first and last 64KB
 // of the file rather than parsing the entire JSONL.
+//
+// buildSessionInfoFromFile 通过读取 JSONL 文件构建 SDKSessionInfo。
+// 为提高效率，仅读取文件首尾各 64KB，而非解析整个 JSONL。
 func buildSessionInfoFromFile(sessionID, path string) (*SDKSessionInfo, error) {
 	path = filepath.Clean(path)
 	fileInfo, err := os.Stat(path)
@@ -489,12 +554,16 @@ func buildSessionInfoFromFile(sessionID, path string) (*SDKSessionInfo, error) {
 }
 
 // jsonlEntry represents a parsed line from a JSONL file.
+//
+// jsonlEntry 表示从 JSONL 文件解析出的一行。
 type jsonlEntry struct {
 	entryType string
 	raw       map[string]any
 }
 
 // parseJSONLFile reads and parses all lines from a JSONL file.
+//
+// parseJSONLFile 读取并解析 JSONL 文件的所有行。
 func parseJSONLFile(path string) (entries []jsonlEntry, err error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -548,6 +617,10 @@ var commandNamePattern = regexp.MustCompile(`<command-name>(.*?)</command-name>`
 // extractFirstPrompt extracts the first meaningful user prompt from JSONL entries.
 // Skips tool_result messages, isMeta, isCompactSummary, command-name messages,
 // and auto-generated patterns. Truncates to maxFirstPromptLen characters.
+//
+// extractFirstPrompt 从 JSONL 条目中提取第一条有意义的用户提示。
+// 会跳过 tool_result 消息、isMeta、isCompactSummary、command-name 消息及自动生成的模式，
+// 并截断到 maxFirstPromptLen 个字符。
 func extractFirstPrompt(entries []jsonlEntry) *string {
 	for _, e := range entries {
 		if e.entryType != entryTypeUser {
@@ -597,6 +670,10 @@ func extractFirstPrompt(entries []jsonlEntry) *string {
 // extractTextFromMessage returns the text content of a message.
 // For string content, returns it directly. For block content, returns
 // the first text block's text. Returns "" if the content is only tool_result blocks.
+//
+// extractTextFromMessage 返回消息的文本内容。
+// 对于字符串内容直接返回；对于块内容返回第一个文本块的文本；
+// 若内容仅含 tool_result 块则返回 ""。
 func extractTextFromMessage(msg map[string]any) string {
 	content, ok := msg["content"]
 	if !ok {
@@ -645,6 +722,12 @@ func extractTextFromMessage(msg map[string]any) string {
 // This is used for metadata extraction (ListSessions, GetSessionInfo) where
 // reading the full file is unnecessary — session metadata is in the head
 // (timestamps, cwd, gitBranch, first_prompt) and tail (titles, tags).
+//
+// parseJSONLHeadTail 读取 JSONL 文件首尾各 bufSize 字节，并从每个块中解析完整行。
+// 对于小于 2*bufSize 的文件，则读取整个文件（等同于 parseJSONLFile）。
+//
+// 用于元数据提取（ListSessions、GetSessionInfo），无需读取整个文件——
+// 会话元数据位于首部（时间戳、cwd、gitBranch、first_prompt）与尾部（标题、标签）。
 func parseJSONLHeadTail(path string, bufSize int64) (entries []jsonlEntry, err error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -694,6 +777,8 @@ func parseJSONLHeadTail(path string, bufSize int64) (entries []jsonlEntry, err e
 }
 
 // parseJSONLFromReader reads all lines from an already-opened file.
+//
+// parseJSONLFromReader 从已打开的文件中读取所有行。
 func parseJSONLFromReader(f *os.File) ([]jsonlEntry, error) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -720,6 +805,10 @@ func parseJSONLFromReader(f *os.File) ([]jsonlEntry, error) {
 // parseLinesFromBytes parses complete JSONL lines from a byte buffer.
 // If isHead is true, discards the last partial line (tail of head chunk).
 // If isHead is false, discards the first partial line (start of tail chunk).
+//
+// parseLinesFromBytes 从字节缓冲区中解析完整的 JSONL 行。
+// isHead 为 true 时丢弃最后一行不完整行（首部块的尾部）；
+// isHead 为 false 时丢弃第一行不完整行（尾部块的开头）。
 func parseLinesFromBytes(buf []byte, isHead bool) []jsonlEntry {
 	var entries []jsonlEntry
 	start := 0
@@ -761,6 +850,8 @@ func parseLinesFromBytes(buf []byte, isHead bool) []jsonlEntry {
 
 // extractMetadataFromEntries populates session metadata fields by scanning JSONL entries.
 // Extracts titles, tags, cwd, gitBranch, and createdAt timestamp.
+//
+// extractMetadataFromEntries 通过扫描 JSONL 条目填充会话元数据字段（标题、标签、cwd、gitBranch、createdAt）。
 func extractMetadataFromEntries(info *SDKSessionInfo, entries []jsonlEntry) {
 	for _, e := range entries {
 		extractEntryMetadata(info, e)
@@ -769,6 +860,8 @@ func extractMetadataFromEntries(info *SDKSessionInfo, entries []jsonlEntry) {
 }
 
 // extractEntryMetadata extracts metadata from a single JSONL entry into info.
+//
+// extractEntryMetadata 从单个 JSONL 条目中提取元数据填入 info。
 func extractEntryMetadata(info *SDKSessionInfo, e jsonlEntry) {
 	switch e.entryType {
 	case "custom-title":
@@ -802,6 +895,8 @@ func extractEntryMetadata(info *SDKSessionInfo, e jsonlEntry) {
 
 // extractCreatedAt sets CreatedAt from the first entry that carries a valid
 // RFC3339 timestamp. Once set, subsequent calls are no-ops.
+//
+// extractCreatedAt 从第一个携带有效 RFC3339 时间戳的条目设置 CreatedAt；一旦设置，后续调用为空操作。
 func extractCreatedAt(info *SDKSessionInfo, e jsonlEntry) {
 	if info.CreatedAt != nil {
 		return
@@ -820,6 +915,9 @@ func extractCreatedAt(info *SDKSessionInfo, e jsonlEntry) {
 
 // determineSummary sets the Summary field based on available metadata.
 // Priority: custom_title > ai_title > first_prompt > timestamp fallback > session ID.
+//
+// determineSummary 根据可用元数据设置 Summary 字段。
+// 优先级：custom_title > ai_title > first_prompt > 时间戳回退 > 会话 ID。
 func determineSummary(info *SDKSessionInfo) {
 	switch {
 	case info.CustomTitle != nil:
@@ -836,6 +934,8 @@ func determineSummary(info *SDKSessionInfo) {
 }
 
 // buildSessionInfo constructs SDKSessionInfo from parsed JSONL entries.
+//
+// buildSessionInfo 从解析后的 JSONL 条目构建 SDKSessionInfo。
 func buildSessionInfo(sessionID string, entries []jsonlEntry, fileInfo os.FileInfo) *SDKSessionInfo {
 	info := &SDKSessionInfo{
 		SessionID:    sessionID,
@@ -852,6 +952,8 @@ func buildSessionInfo(sessionID string, entries []jsonlEntry, fileInfo os.FileIn
 }
 
 // parseMessageContent parses the content field of a message into a typed MessageContent.
+//
+// parseMessageContent 将消息的 content 字段解析为带类型的 MessageContent。
 func parseMessageContent(msg map[string]any) *MessageContent {
 	content, ok := msg["content"]
 	if !ok {
@@ -889,6 +991,9 @@ func parseMessageContent(msg map[string]any) *MessageContent {
 
 // parseContentBlock parses a single content block from a raw map.
 // Known fields are extracted into typed struct fields; Raw is always populated.
+//
+// parseContentBlock 从原始 map 解析单个内容块。
+// 已知字段被提取到带类型的结构体字段；Raw 总是被填充。
 func parseContentBlock(raw map[string]any) ContentBlock {
 	cb := ContentBlock{
 		Raw: raw,
@@ -931,6 +1036,8 @@ func parseContentBlock(raw map[string]any) ContentBlock {
 }
 
 // Entry type constants for JSONL entries.
+//
+// JSONL 条目的类型常量。
 const (
 	entryTypeUser      = "user"
 	entryTypeAssistant = "assistant"
@@ -938,11 +1045,15 @@ const (
 
 // transcriptEntryTypes are the JSONL entry types that carry uuid + parentUuid
 // chain links, matching the Python SDK's _TRANSCRIPT_ENTRY_TYPES.
+//
+// transcriptEntryTypes 是携带 uuid + parentUuid 链接的 JSONL 条目类型集合。
 var transcriptEntryTypes = map[string]bool{
 	entryTypeUser: true, entryTypeAssistant: true, "progress": true, "system": true, "attachment": true,
 }
 
 // isTranscriptEntry returns true if the entry is a transcript message type with a uuid.
+//
+// isTranscriptEntry 在条目为携带 uuid 的记录消息类型时返回 true。
 func isTranscriptEntry(e jsonlEntry) bool {
 	if !transcriptEntryTypes[e.entryType] {
 		return false
@@ -953,6 +1064,8 @@ func isTranscriptEntry(e jsonlEntry) bool {
 
 // isVisibleMessage returns true if the entry should be included in returned messages.
 // Matches the Python SDK's _is_visible_message filter.
+//
+// isVisibleMessage 在条目应被包含在返回消息中时返回 true（过滤 isMeta/isSidechain/teamName）。
 func isVisibleMessage(e jsonlEntry) bool {
 	if e.entryType != entryTypeUser && e.entryType != entryTypeAssistant {
 		return false
@@ -970,12 +1083,16 @@ func isVisibleMessage(e jsonlEntry) bool {
 }
 
 // entryUUID returns the uuid of a JSONL entry, or "".
+//
+// entryUUID 返回 JSONL 条目的 uuid，不存在时返回 ""。
 func entryUUID(e jsonlEntry) string {
 	uuid, _ := e.raw["uuid"].(string)
 	return uuid
 }
 
 // entryParentUUID returns the parentUuid of a JSONL entry, or "".
+//
+// entryParentUUID 返回 JSONL 条目的 parentUuid，不存在时返回 ""。
 func entryParentUUID(e jsonlEntry) string {
 	parent, _ := e.raw["parentUuid"].(string)
 	return parent
@@ -983,6 +1100,9 @@ func entryParentUUID(e jsonlEntry) string {
 
 // leaf represents a user/assistant entry at the end of a conversation branch,
 // used during chain reconstruction to pick the best (main) conversation path.
+//
+// leaf 表示位于对话分支末端的用户/助手条目，
+// 在重建链时用于选择最佳（主）对话路径。
 type leaf struct {
 	idx         int
 	isSidechain bool
@@ -992,6 +1112,8 @@ type leaf struct {
 
 // findTerminals returns the indices of transcript entries that have no children
 // (i.e., no other entry lists their uuid as a parentUuid).
+//
+// findTerminals 返回没有子节点的记录条目索引（即没有其他条目将其 uuid 作为 parentUuid）。
 func findTerminals(transcriptEntries []jsonlEntry) []int {
 	childrenOf := make(map[string]bool, len(transcriptEntries))
 	for _, e := range transcriptEntries {
@@ -1011,6 +1133,9 @@ func findTerminals(transcriptEntries []jsonlEntry) []int {
 
 // findLeaves walks back from each terminal via parentUuid to find the nearest
 // user/assistant entry, collecting metadata about sidechain/teamName/isMeta status.
+//
+// findLeaves 从每个末端节点沿 parentUuid 回溯，找到最近的用户/助手条目，
+// 并收集其 sidechain/teamName/isMeta 状态元数据。
 func findLeaves(transcriptEntries []jsonlEntry, terminals []int, byUUID map[string]int) []leaf {
 	var leaves []leaf
 	for _, termIdx := range terminals {
@@ -1024,6 +1149,9 @@ func findLeaves(transcriptEntries []jsonlEntry, terminals []int, byUUID map[stri
 // walkToLeaf walks backwards from a terminal entry via parentUuid links until it
 // finds a user or assistant entry, returning it as a leaf. Returns ok=false if
 // no qualifying entry is found.
+//
+// walkToLeaf 从末端条目沿 parentUuid 链接向前回溯，直到找到用户或助手条目并作为 leaf 返回；
+// 若未找到符合条件的条目则返回 ok=false。
 func walkToLeaf(transcriptEntries []jsonlEntry, startIdx int, byUUID map[string]int) (leaf, bool) {
 	seen := make(map[string]bool)
 	cur := startIdx
@@ -1055,6 +1183,9 @@ func walkToLeaf(transcriptEntries []jsonlEntry, startIdx int, byUUID map[string]
 
 // pickBestLeaf selects the best leaf from candidates: prefers entries that are
 // not sidechain/teamName/isMeta, breaking ties by highest file position (index).
+//
+// pickBestLeaf 从候选中选择最佳 leaf：优先选非 sidechain/teamName/isMeta 的条目，
+// 并列时以文件位置（索引）最大者胜出。
 func pickBestLeaf(leaves []leaf) leaf {
 	var mainLeaves []leaf
 	for _, l := range leaves {
@@ -1078,6 +1209,9 @@ func pickBestLeaf(leaves []leaf) leaf {
 // walkChainToRoot walks from the entry at startIdx to the root via parentUuid
 // links, collecting entries along the way. Returns entries in chronological order
 // (root first).
+//
+// walkChainToRoot 从 startIdx 处的条目沿 parentUuid 链接走向根节点，途中收集条目，
+// 并按时间顺序（根节点在前）返回。
 func walkChainToRoot(transcriptEntries []jsonlEntry, startIdx int, byUUID map[string]int) []jsonlEntry {
 	var chain []jsonlEntry
 	seen := make(map[string]bool)
@@ -1117,6 +1251,14 @@ func walkChainToRoot(transcriptEntries []jsonlEntry, startIdx int, byUUID map[st
 //  3. From each terminal, walk back to find the nearest user/assistant leaf
 //  4. Pick the best leaf: not sidechain/teamName/isMeta, highest file position
 //  5. Walk from leaf to root via parentUuid, reverse to chronological order
+//
+// buildConversationChain 通过走 parentUuid 链接，从记录条目重建主对话链。
+// 算法：
+//  1. 按 uuid 为记录条目建索引
+//  2. 找出末端节点（无子节点的条目）
+//  3. 从每个末端节点回溯，找到最近的用户/助手 leaf
+//  4. 选择最佳 leaf：非 sidechain/teamName/isMeta、文件位置最靠后
+//  5. 从 leaf 沿 parentUuid 走向根节点，再反转为时间顺序
 func buildConversationChain(transcriptEntries []jsonlEntry, byUUID map[string]int) []jsonlEntry {
 	if len(transcriptEntries) == 0 {
 		return nil
@@ -1135,6 +1277,9 @@ func buildConversationChain(transcriptEntries []jsonlEntry, byUUID map[string]in
 // buildMessages extracts user and assistant messages from JSONL entries.
 // If entries contain parentUuid fields, it reconstructs the conversation chain.
 // Otherwise, it falls back to a flat scan with visibility filtering.
+//
+// buildMessages 从 JSONL 条目中提取用户与助手消息。
+// 若条目包含 parentUuid 字段，则重建对话链；否则回退到带可见性过滤的平铺扫描。
 func buildMessages(sessionID string, entries []jsonlEntry) []Message {
 	// Check if any entry has parentUuid — determines chain vs flat-scan path.
 	hasParentUUID := false

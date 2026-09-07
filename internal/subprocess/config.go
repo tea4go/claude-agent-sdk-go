@@ -18,9 +18,14 @@ import (
 
 // generateMcpConfigFile creates a temporary MCP config file from options.McpServers.
 // Returns the file path. The file is stored in t.mcpConfigFile for cleanup.
+//
+// generateMcpConfigFile 根据 options.McpServers 创建临时 MCP 配置文件并返回其路径。
+// 文件存于 t.mcpConfigFile 以便后续清理。
 func (t *Transport) generateMcpConfigFile(options *shared.Options) (string, error) {
 	// Build servers map, stripping Instance field from SDK servers for CLI serialization
 	// The CLI doesn't need the Go instance - it routes mcp_message requests to the SDK
+	// 构建服务器 map，为 CLI 序列化时剔除 SDK 服务器的 Instance 字段；
+	// CLI 不需要 Go 实例——它会将 mcp_message 请求路由回 SDK
 	serversForCLI := make(map[string]any)
 	for name, config := range options.McpServers {
 		if sdkConfig, ok := config.(*shared.McpSdkServerConfig); ok {
@@ -80,6 +85,9 @@ func (t *Transport) generateMcpConfigFile(options *shared.Options) (string, erro
 
 // GetValidator returns the stream validator for diagnostic purposes.
 // This allows clients to check for validation issues like missing tool results.
+//
+// GetValidator 返回用于诊断的流校验器，
+// 使调用方可检查如“缺失工具结果”之类的校验问题。
 func (t *Transport) GetValidator() *shared.StreamValidator {
 	return t.validator
 }
@@ -87,6 +95,9 @@ func (t *Transport) GetValidator() *shared.StreamValidator {
 // SetModel changes the AI model during a streaming session.
 // This method requires control protocol integration which is only available
 // in streaming mode (when closeStdin is false).
+//
+// SetModel 在流式会话中切换 AI 模型。
+// 该方法依赖控制协议，仅在流式模式（closeStdin 为 false）下可用。
 func (t *Transport) SetModel(ctx context.Context, model *string) error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -111,6 +122,9 @@ func (t *Transport) SetModel(ctx context.Context, model *string) error {
 // SetPermissionMode changes the permission mode during a streaming session.
 // This method requires control protocol integration which is only available
 // in streaming mode (when closeStdin is false).
+//
+// SetPermissionMode 在流式会话中切换权限模式。
+// 该方法依赖控制协议，仅在流式模式（closeStdin 为 false）下可用。
 func (t *Transport) SetPermissionMode(ctx context.Context, mode shared.PermissionMode) error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -136,6 +150,10 @@ func (t *Transport) SetPermissionMode(ctx context.Context, mode shared.Permissio
 // This method requires control protocol integration which is only available
 // in streaming mode (when closeStdin is false).
 // Returns error if not connected, not in streaming mode, or protocol not initialized.
+//
+// RewindFiles 将被跟踪的文件回滚到指定用户消息时的状态。
+// 该方法依赖控制协议，仅在流式模式（closeStdin 为 false）下可用；
+// 未连接、非流式模式或协议未初始化时返回错误。
 func (t *Transport) RewindFiles(ctx context.Context, userMessageID string) error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -160,6 +178,9 @@ func (t *Transport) RewindFiles(ctx context.Context, userMessageID string) error
 // GetMcpStatus returns the connection status of all configured MCP servers.
 // This method requires control protocol integration which is only available
 // in streaming mode (when closeStdin is false).
+//
+// GetMcpStatus 返回所有已配置 MCP 服务器的连接状态。
+// 该方法依赖控制协议，仅在流式模式（closeStdin 为 false）下可用。
 func (t *Transport) GetMcpStatus(ctx context.Context) (*control.McpStatusResponse, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -181,6 +202,9 @@ func (t *Transport) GetMcpStatus(ctx context.Context) (*control.McpStatusRespons
 
 // GetSlashCommands returns slash commands available in the current session.
 // Commands are discovered from the system/init message emitted by the CLI.
+//
+// GetSlashCommands 返回当前会话中可用的斜杠命令，
+// 命令从 CLI 发出的 system/init 消息中发现。
 func (t *Transport) GetSlashCommands(ctx context.Context) ([]control.SlashCommand, error) {
 	t.mu.RLock()
 	if !t.connected {
@@ -227,6 +251,8 @@ func (t *Transport) copySlashCommands() []control.SlashCommand {
 }
 
 // buildProtocolOptions constructs control protocol options from transport configuration.
+//
+// buildProtocolOptions 根据 transport 配置构建控制协议选项。
 func (t *Transport) buildProtocolOptions() []control.ProtocolOption {
 	var opts []control.ProtocolOption
 
@@ -296,6 +322,9 @@ func isSkillsList(skills any) bool {
 
 // hasSdkMcpServers checks if any SDK MCP servers are configured.
 // Returns true if at least one SDK server with a valid Instance exists.
+//
+// hasSdkMcpServers 检查是否配置了 SDK MCP 服务器；
+// 当至少存在一个具有有效 Instance 的 SDK 服务器时返回 true。
 func (t *Transport) hasSdkMcpServers() bool {
 	if t.options == nil || len(t.options.McpServers) == 0 {
 		return false
@@ -309,6 +338,8 @@ func (t *Transport) hasSdkMcpServers() bool {
 }
 
 // buildEnvironment constructs the environment variables for the subprocess.
+//
+// buildEnvironment 为子进程构建环境变量。
 func (t *Transport) buildEnvironment() []string {
 	env := os.Environ()
 
@@ -331,6 +362,8 @@ func (t *Transport) buildEnvironment() []string {
 }
 
 // prepareRuntimeOptions generates temporary runtime files and returns modified options.
+//
+// prepareRuntimeOptions 生成临时运行时文件（Skill 注册表与 MCP 配置）并返回修改后的 options。
 func (t *Transport) prepareRuntimeOptions() (*shared.Options, error) {
 	opts, err := t.prepareSkillRegistries(t.options)
 	if err != nil {
@@ -342,6 +375,9 @@ func (t *Transport) prepareRuntimeOptions() (*shared.Options, error) {
 // prepareSkillRegistries creates temporary local plugin wrappers for external
 // Skill registries and returns options with the generated plugins and scoped
 // Skill tools added.
+//
+// prepareSkillRegistries 为外部 Skill 注册表创建临时本地插件包装器，
+// 并返回追加了生成插件与作用域 Skill 工具后的 options。
 func (t *Transport) prepareSkillRegistries(options *shared.Options) (*shared.Options, error) {
 	if options == nil || len(options.SkillRegistries) == 0 {
 		return options, nil
@@ -590,6 +626,9 @@ func containsString(values []string, want string) bool {
 
 // prepareMcpConfig generates MCP config file if needed and returns modified options.
 // Returns the original options unchanged if no MCP servers are configured.
+//
+// prepareMcpConfig 在需要时生成 MCP 配置文件并返回修改后的 options；
+// 未配置 MCP 服务器时原样返回原 options。
 func (t *Transport) prepareMcpConfig(options *shared.Options) (*shared.Options, error) {
 	if options == nil || len(options.McpServers) == 0 {
 		return options, nil
@@ -617,6 +656,9 @@ func (t *Transport) prepareMcpConfig(options *shared.Options) (*shared.Options, 
 
 // emitCLIVersionWarning performs a non-blocking CLI version check and emits
 // a warning via StderrCallback if the CLI version is outdated.
+//
+// emitCLIVersionWarning 执行非阻塞的 CLI 版本检查；
+// 若 CLI 版本过旧，则通过 StderrCallback 发出警告。
 func (t *Transport) emitCLIVersionWarning(ctx context.Context) {
 	if warning := cli.CheckCLIVersion(ctx, t.cliPath); warning != "" {
 		if t.options != nil && t.options.StderrCallback != nil {

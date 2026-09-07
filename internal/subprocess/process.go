@@ -15,6 +15,9 @@ var processTerminationGracePeriod = 5 * time.Second
 // processTree owns the Claude CLI root process and all ordinary descendants.
 // Implementations must tolerate concurrent forceStop calls from context
 // cancellation and explicit Close.
+//
+// processTree 拥有 Claude CLI 根进程及所有普通子孙进程。
+// 实现必须容忍来自 context 取消与显式 Close 的并发 forceStop 调用。
 type processTree interface {
 	gracefulStop() error
 	forceStop() error
@@ -24,6 +27,9 @@ type processTree interface {
 
 // isProcessAlreadyFinishedError checks if an error indicates the process has
 // already terminated. These conditions are successful cleanup outcomes.
+//
+// isProcessAlreadyFinishedError 判断错误是否表示进程已终止；
+// 这些情况均视为成功的清理结果。
 func isProcessAlreadyFinishedError(err error) bool {
 	if err == nil {
 		return false
@@ -36,6 +42,8 @@ func isProcessAlreadyFinishedError(err error) bool {
 		strings.Contains(errStr, "signal: terminated")
 }
 
+// watchCallerCancellation 监听调用方 context 的取消：一旦取消，则强制停止进程树
+// 并取消进程与 I/O 的 context；收到 stop 信号时退出。
 func (t *Transport) watchCallerCancellation(
 	ctxDone <-chan struct{},
 	stop <-chan struct{},
@@ -66,6 +74,9 @@ func (t *Transport) watchCallerCancellation(
 
 // terminateProcess performs one graceful process-tree wait followed by a hard
 // tree kill. Caller-context cancellation and explicit Abort skip the grace period.
+//
+// terminateProcess 先对进程树执行一次优雅等待，随后强制杀死整棵进程树。
+// 调用方 context 取消与显式 Abort 会跳过宽限期。
 func (t *Transport) terminateProcess() error {
 	if t.cmd == nil || t.cmd.Process == nil {
 		return nil
@@ -121,6 +132,8 @@ func (t *Transport) terminateProcess() error {
 	return cleanupErr
 }
 
+// startProcessWaiter 以 sync.Once 保证仅启动一个后台 goroutine 回收进程（cmd.Wait），
+// 并返回用于等待完成的通道。
 func (t *Transport) startProcessWaiter(cmd *exec.Cmd) <-chan struct{} {
 	t.processWaitOnce.Do(func() {
 		go func() {
@@ -132,6 +145,8 @@ func (t *Transport) startProcessWaiter(cmd *exec.Cmd) <-chan struct{} {
 }
 
 // cleanup releases pipes, temporary files, and platform process handles.
+//
+// cleanup 释放管道、临时文件与平台进程句柄。
 func (t *Transport) cleanup() {
 	if t.stdin != nil {
 		_ = t.stdin.Close()
@@ -177,6 +192,7 @@ func (t *Transport) cleanup() {
 	t.processWaitErr = nil
 }
 
+// cleanupSkillRegistryDirs 删除为外部 Skill 注册表生成的临时插件包装器目录。
 func (t *Transport) cleanupSkillRegistryDirs() {
 	for _, dir := range t.skillRegistryDirs {
 		_ = os.RemoveAll(dir)

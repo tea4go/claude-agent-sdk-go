@@ -18,6 +18,8 @@ import (
 
 const windowsTreeKillTimeout = 5 * time.Second
 
+// windowsProcessTree 基于 Job Object（首选）或 taskkill /T /F（回退）
+// 在 Windows 上实现 processTree。
 type windowsProcessTree struct {
 	mu sync.Mutex
 
@@ -34,8 +36,12 @@ type windowsProcessTree struct {
 func configureProcessTree(_ *exec.Cmd) {
 	// Windows process-tree ownership is attached after Start with a Job Object.
 	// Hidden-window attributes are applied by cli.NewExecCommandContext.
+	// Windows 下的进程树接管在 Start 后通过 Job Object 完成；
+	// 隐藏窗口属性由 cli.NewExecCommandContext 应用。
 }
 
+// attachProcessTree 在进程启动后尝试将其纳入 Job Object；
+// 若失败（如宿主已施加限制性 Job）则回退到隐藏的 taskkill /T /F。
 func attachProcessTree(cmd *exec.Cmd) (processTree, error) {
 	if cmd == nil || cmd.Process == nil {
 		return nil, errors.New("cannot attach process tree before process start")
@@ -45,11 +51,15 @@ func attachProcessTree(cmd *exec.Cmd) (processTree, error) {
 	if err := tree.attachJob(); err != nil {
 		// Some hosts place the SDK process in a restrictive Job Object. Keep the
 		// session usable and retain a hidden taskkill /T /F fallback.
+		// 某些宿主会将 SDK 进程置于受限的 Job Object 中；保持会话可用，
+		// 并保留隐藏的 taskkill /T /F 回退方案。
 		tree.useTaskkill = true
 	}
 	return tree, nil
 }
 
+// attachJob 创建 Job Object（设置 KILL_ON_JOB_CLOSE）并将 Claude 进程纳入，
+// 以便一次性终止整棵进程树。
 func (p *windowsProcessTree) attachJob() error {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -93,9 +103,13 @@ func (p *windowsProcessTree) attachJob() error {
 func (p *windowsProcessTree) gracefulStop() error {
 	// Hidden processes do not have a console to receive CTRL_BREAK_EVENT.
 	// Close closes stdin before waiting, allowing Claude to exit naturally.
+	// 隐藏进程没有控制台可接收 CTRL_BREAK_EVENT。
+	// Close 会在等待前先关闭 stdin，从而让 Claude 自然退出。
 	return nil
 }
 
+// forceStop 以 sync.Once 保证仅强制终止一次：优先终止 Job Object，
+// 否则回退到 taskkill 杀死整棵进程树。
 func (p *windowsProcessTree) forceStop() error {
 	p.forceOnce.Do(func() {
 		p.mu.Lock()
@@ -114,6 +128,7 @@ func (p *windowsProcessTree) forceStop() error {
 	return p.forceErr
 }
 
+// forceKillWindowsProcessTree 通过 taskkill /T /F 杀死指定 PID 及其整棵进程树（回退方案）。
 func forceKillWindowsProcessTree(pid int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), windowsTreeKillTimeout)
 	defer cancel()
@@ -131,6 +146,7 @@ func forceKillWindowsProcessTree(pid int) error {
 	return nil
 }
 
+// wait 等待进程在给定超时内退出；退出返回 true，超时返回 false。
 func (p *windowsProcessTree) wait(timeout time.Duration) bool {
 	p.mu.Lock()
 	process := p.process
@@ -161,6 +177,7 @@ func (p *windowsProcessTree) wait(timeout time.Duration) bool {
 	return event == windows.WAIT_OBJECT_0
 }
 
+// durationToWindowsMilliseconds 将 time.Duration 转换为 Windows 等待 API 所需的毫秒数。
 func durationToWindowsMilliseconds(timeout time.Duration) uint32 {
 	if timeout <= 0 {
 		return 0
@@ -175,6 +192,7 @@ func durationToWindowsMilliseconds(timeout time.Duration) uint32 {
 	return uint32(millis)
 }
 
+// close 以 sync.Once 关闭并释放进程与 Job Object 句柄。
 func (p *windowsProcessTree) close() error {
 	p.closeOnce.Do(func() {
 		p.mu.Lock()

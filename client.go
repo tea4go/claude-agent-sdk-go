@@ -12,6 +12,8 @@ import (
 const defaultSessionID = "default"
 
 // Client provides bidirectional streaming communication with Claude Code CLI.
+//
+// Client 提供与 Claude Code CLI 的双向流式通信能力。
 type Client interface {
 	Connect(ctx context.Context, prompt ...StreamMessage) error
 	Disconnect() error
@@ -50,6 +52,8 @@ type Client interface {
 }
 
 // ClientImpl implements the Client interface.
+//
+// ClientImpl 是 Client 接口的具体实现。
 type ClientImpl struct {
 	mu              sync.RWMutex
 	transport       Transport
@@ -65,6 +69,8 @@ type ClientImpl struct {
 }
 
 // NewClient creates a new Client with the given options.
+//
+// NewClient 使用给定的选项创建一个新的 Client。
 func NewClient(opts ...Option) Client {
 	options := NewOptions(opts...)
 	client := &ClientImpl{
@@ -74,6 +80,8 @@ func NewClient(opts ...Option) Client {
 }
 
 // NewClientWithTransport creates a new Client with a custom transport (for testing).
+//
+// NewClientWithTransport 使用自定义 transport 创建 Client（用于测试）。
 func NewClientWithTransport(transport Transport, opts ...Option) Client {
 	options := NewOptions(opts...)
 	return &ClientImpl{
@@ -85,6 +93,9 @@ func NewClientWithTransport(transport Transport, opts ...Option) Client {
 // WithClient provides Go-idiomatic resource management equivalent to Python SDK's async context manager.
 // It automatically connects to Claude Code CLI, executes the provided function, and ensures proper cleanup.
 // This eliminates the need for manual Connect/Disconnect calls and prevents resource leaks.
+//
+// WithClient 提供符合 Go 习惯的资源管理，等价于 Python SDK 的异步上下文管理器：
+// 自动连接 Claude Code CLI、执行给定函数并保证正确清理，无需手动调用 Connect/Disconnect，避免资源泄漏。
 //
 // The function follows Go's established resource management patterns using defer for guaranteed cleanup,
 // similar to how database connections, files, and other resources are typically managed in Go.
@@ -153,6 +164,8 @@ func WithClient(ctx context.Context, fn func(Client) error, opts ...Option) erro
 // WithClientTransport provides Go-idiomatic resource management with a custom transport for testing.
 // This is the testing-friendly version of WithClient that accepts an explicit transport parameter.
 //
+// WithClientTransport 是 WithClient 的测试友好版本，接受显式的自定义 transport 参数以便测试。
+//
 // Usage in tests:
 //
 //	transport := newClientMockTransport()
@@ -191,6 +204,8 @@ func WithClientTransport(ctx context.Context, transport Transport, fn func(Clien
 }
 
 // prepareOptions applies defaults and validates the client configuration options.
+//
+// prepareOptions 应用默认值并校验客户端配置选项。
 func (c *ClientImpl) prepareOptions() error {
 	if c.options == nil {
 		return nil // Nil options are acceptable (use defaults)
@@ -232,6 +247,8 @@ func (c *ClientImpl) prepareOptions() error {
 }
 
 // Connect establishes a connection to the Claude Code CLI.
+//
+// Connect 建立与 Claude Code CLI 的连接。
 func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	// Check context before acquiring lock
 	if ctx.Err() != nil {
@@ -291,6 +308,8 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 }
 
 // Disconnect closes the connection to the Claude Code CLI.
+//
+// Disconnect 关闭与 Claude Code CLI 的连接。
 func (c *ClientImpl) Disconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -324,6 +343,9 @@ func (c *ClientImpl) Disconnect() error {
 // Abort immediately terminates the connection to the Claude Code CLI.
 // Custom transports can implement AbortableTransport for native force-stop
 // behavior. Legacy transports fall back to Close.
+//
+// Abort 立即终止与 Claude Code CLI 的连接。自定义 transport 可实现 AbortableTransport
+// 以获得原生强制停止行为；旧式 transport 则回退到 Close。
 func (c *ClientImpl) Abort() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -360,6 +382,8 @@ func (c *ClientImpl) Abort() error {
 // Query sends a simple text query using the default session.
 // This is equivalent to QueryWithSession(ctx, prompt, "default").
 //
+// Query 使用默认会话发送一条简单的文本查询，等价于 QueryWithSession(ctx, prompt, "default")。
+//
 // Example:
 //
 //	client.Query(ctx, "What is Go?")
@@ -370,6 +394,9 @@ func (c *ClientImpl) Query(ctx context.Context, prompt string) error {
 // QueryWithSession sends a simple text query using the specified session ID.
 // Each session maintains its own conversation context, allowing for isolated
 // conversations within the same client connection.
+//
+// QueryWithSession 使用指定的会话 ID 发送文本查询。每个会话维护自己的对话上下文，
+// 从而在同一客户端连接内实现相互隔离的多个对话。
 //
 // If sessionID is empty, it defaults to "default".
 //
@@ -387,6 +414,8 @@ func (c *ClientImpl) QueryWithSession(ctx context.Context, prompt string, sessio
 }
 
 // queryWithSession is the internal implementation for sending queries with session management.
+//
+// queryWithSession 是带会话管理的查询发送内部实现。
 func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessionID string) error {
 	// Check context before proceeding
 	if ctx.Err() != nil {
@@ -471,6 +500,8 @@ func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessio
 	return transport.SendMessage(ctx, streamMsg)
 }
 
+// mergeMessageChannels 将 transport 消息通道与注入消息通道合并到同一个输出通道；
+// 任一上游通道关闭后置 nil，直至两者均关闭或 ctx 取消时退出。
 func mergeMessageChannels(
 	ctx context.Context,
 	out chan<- Message,
@@ -509,6 +540,7 @@ func mergeMessageChannels(
 	}
 }
 
+// enqueueInjectedMessage 将一条注入消息发送到通道；通道为 nil 或 ctx 取消时返回 false。
 func enqueueInjectedMessage(ctx context.Context, ch chan<- Message, msg Message) bool {
 	if ch == nil {
 		return false
@@ -522,6 +554,8 @@ func enqueueInjectedMessage(ctx context.Context, ch chan<- Message, msg Message)
 }
 
 // QueryStream sends a stream of messages.
+//
+// QueryStream 发送一个消息流（在后台 goroutine 中依次发送）。
 func (c *ClientImpl) QueryStream(ctx context.Context, messages <-chan StreamMessage) error {
 	// Check connection status with read lock
 	c.mu.RLock()
@@ -560,6 +594,8 @@ func (c *ClientImpl) QueryStream(ctx context.Context, messages <-chan StreamMess
 }
 
 // ReceiveMessages returns a channel of incoming messages.
+//
+// ReceiveMessages 返回一个接收入站消息的通道；未连接时返回一个已关闭的通道。
 func (c *ClientImpl) ReceiveMessages(_ context.Context) <-chan Message {
 	// Check connection status with read lock
 	c.mu.RLock()
@@ -579,6 +615,8 @@ func (c *ClientImpl) ReceiveMessages(_ context.Context) <-chan Message {
 }
 
 // ReceiveResponse returns an iterator for the response messages.
+//
+// ReceiveResponse 返回用于遍历响应消息的迭代器；未连接时返回包裹已关闭通道的迭代器（非 nil）。
 func (c *ClientImpl) ReceiveResponse(_ context.Context) MessageIterator {
 	// Check connection status with read lock
 	c.mu.RLock()
@@ -602,6 +640,8 @@ func (c *ClientImpl) ReceiveResponse(_ context.Context) MessageIterator {
 }
 
 // Interrupt sends an interrupt signal to stop the current operation.
+//
+// Interrupt 发送中断信号以停止当前操作。
 func (c *ClientImpl) Interrupt(ctx context.Context) error {
 	// Check context before proceeding
 	if ctx.Err() != nil {
@@ -624,6 +664,9 @@ func (c *ClientImpl) Interrupt(ctx context.Context) error {
 // SetModel changes the AI model during a streaming session.
 // Pass nil to reset to the default model.
 // Returns error if not connected or if the control request fails.
+//
+// SetModel 在流式会话期间切换 AI 模型；传 nil 则重置为默认模型。
+// 未连接或控制请求失败时返回错误。
 //
 // Example - Change to a specific model:
 //
@@ -657,6 +700,10 @@ func (c *ClientImpl) SetModel(ctx context.Context, model *string) error {
 // PermissionModePlan, PermissionModeBypassPermissions.
 // Returns error if not connected or if the control request fails.
 //
+// SetPermissionMode 在流式会话期间切换权限模式。
+// 有效模式：PermissionModeDefault、PermissionModeAcceptEdits、
+// PermissionModePlan、PermissionModeBypassPermissions。未连接或控制请求失败时返回错误。
+//
 // Example - Enable auto-accept for edits:
 //
 //	err := client.SetPermissionMode(ctx, claudecode.PermissionModeAcceptEdits)
@@ -688,6 +735,10 @@ func (c *ClientImpl) SetPermissionMode(ctx context.Context, mode PermissionMode)
 // Requires file checkpointing to be enabled via WithFileCheckpointing() option.
 // Returns error if not connected or the request fails.
 //
+// RewindFiles 将被跟踪的文件回滚到某条用户消息时的状态。
+// messageUUID 应为会话期间收到的 UserMessage 的 UUID，
+// 需通过 WithFileCheckpointing() 选项启用文件检查点。未连接或请求失败时返回错误。
+//
 // Example:
 //
 //	client := claudecode.NewClient(claudecode.WithFileCheckpointing())
@@ -716,6 +767,8 @@ func (c *ClientImpl) RewindFiles(ctx context.Context, messageUUID string) error 
 
 // GetMcpStatus returns the connection status of all configured MCP servers.
 // Returns error if not connected or if the control request fails.
+//
+// GetMcpStatus 返回所有已配置 MCP 服务器的连接状态。未连接或控制请求失败时返回错误。
 func (c *ClientImpl) GetMcpStatus(ctx context.Context) (*McpStatusResponse, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -735,6 +788,8 @@ func (c *ClientImpl) GetMcpStatus(ctx context.Context) (*McpStatusResponse, erro
 
 // GetSlashCommands returns slash commands available in the current session.
 // Returns error if not connected or if the control request fails.
+//
+// GetSlashCommands 返回当前会话中可用的斜杠命令。未连接或控制请求失败时返回错误。
 func (c *ClientImpl) GetSlashCommands(ctx context.Context) ([]SlashCommand, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -753,6 +808,8 @@ func (c *ClientImpl) GetSlashCommands(ctx context.Context) ([]SlashCommand, erro
 }
 
 // clientIterator implements MessageIterator for client message reception
+//
+// clientIterator 实现 MessageIterator，用于客户端消息接收。
 type clientIterator struct {
 	msgChan       <-chan Message
 	errChan       <-chan error
@@ -823,6 +880,8 @@ func (ci *clientIterator) Close() error {
 
 // GetStreamIssues returns validation issues found in the message stream.
 // This can help diagnose problems like missing tool results or incomplete streams.
+//
+// GetStreamIssues 返回消息流中发现的校验问题，可用于诊断如工具结果缺失或流不完整等问题。
 func (c *ClientImpl) GetStreamIssues() []StreamIssue {
 	c.mu.RLock()
 	transport := c.transport
@@ -842,6 +901,8 @@ func (c *ClientImpl) GetStreamIssues() []StreamIssue {
 
 // GetStreamStats returns statistics about the message stream.
 // This includes counts of tools requested/received and pending tools.
+//
+// GetStreamStats 返回消息流的统计信息，包括已请求/已接收的工具数以及待处理工具数。
 func (c *ClientImpl) GetStreamStats() StreamStats {
 	c.mu.RLock()
 	transport := c.transport
@@ -861,6 +922,8 @@ func (c *ClientImpl) GetStreamStats() StreamStats {
 
 // GetServerInfo returns diagnostic information about the client and its connection.
 // This provides useful information for debugging, health checks, and support scenarios.
+//
+// GetServerInfo 返回关于客户端及其连接的诊断信息，便于调试、健康检查与技术支持。
 //
 // This method is thread-safe and can be called concurrently from multiple goroutines.
 //

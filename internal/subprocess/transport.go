@@ -1,4 +1,7 @@
 // Package subprocess provides the subprocess transport implementation for Claude Code CLI.
+//
+// subprocess 包提供基于子进程的 Claude Code CLI transport 实现，
+// 负责进程启动、I/O 管道、消息解析、控制协议接入与优雅关闭。
 package subprocess
 
 import (
@@ -20,14 +23,19 @@ import (
 
 const (
 	// channelBufferSize is the buffer size for message and error channels.
+	// channelBufferSize 是消息通道与错误通道的缓冲区大小。
 	channelBufferSize = 10
 	// ioShutdownTimeout bounds readers after the process tree and pipes stop.
+	// ioShutdownTimeout 限定进程树与管道停止后读取协程的最长等待时间。
 	ioShutdownTimeout = time.Second
 	// windowsOS is the GOOS value for Windows platform.
+	// windowsOS 是 Windows 平台的 GOOS 取值。
 	windowsOS = "windows"
 )
 
 // Transport implements the Transport interface using subprocess communication.
+//
+// Transport 通过子进程通信实现 Transport 接口。
 type Transport struct {
 	// Process management
 	cmd        *exec.Cmd
@@ -88,6 +96,8 @@ type Transport struct {
 }
 
 // New creates a new subprocess transport.
+//
+// New 创建一个新的子进程 transport。
 func New(cliPath string, options *shared.Options, closeStdin bool, entrypoint string) *Transport {
 	return &Transport{
 		cliPath:    cliPath,
@@ -100,6 +110,8 @@ func New(cliPath string, options *shared.Options, closeStdin bool, entrypoint st
 }
 
 // NewWithPrompt creates a new subprocess transport for one-shot queries with prompt as CLI argument.
+//
+// NewWithPrompt 为一次性查询创建子进程 transport，将 prompt 作为 CLI 参数传入。
 func NewWithPrompt(cliPath string, options *shared.Options, prompt string) *Transport {
 	return &Transport{
 		cliPath:    cliPath,
@@ -113,6 +125,8 @@ func NewWithPrompt(cliPath string, options *shared.Options, prompt string) *Tran
 }
 
 // newParser creates a parser using the buffer size from options, or the default.
+//
+// newParser 使用 options 中的缓冲区大小（或默认值）创建解析器。
 func newParser(options *shared.Options) *parser.Parser {
 	if options != nil && options.MaxBufferSize != nil {
 		return parser.NewWithSize(*options.MaxBufferSize)
@@ -121,6 +135,8 @@ func newParser(options *shared.Options) *parser.Parser {
 }
 
 // IsConnected returns whether the transport is currently connected.
+//
+// IsConnected 返回 transport 当前是否处于连接状态。
 func (t *Transport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -128,6 +144,9 @@ func (t *Transport) IsConnected() bool {
 }
 
 // Connect starts the Claude CLI subprocess.
+//
+// Connect 启动 Claude CLI 子进程，完成命令构建、环境变量、I/O 管道、
+// 进程树接管与控制协议初始化。
 func (t *Transport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -279,6 +298,9 @@ func (t *Transport) Connect(ctx context.Context) error {
 
 // setupControlProtocol initializes control protocol for streaming mode.
 // Returns nil immediately for one-shot mode (closeStdin == true).
+//
+// setupControlProtocol 为流式模式初始化控制协议；
+// 一次性模式（closeStdin == true）下直接返回 nil。
 func (t *Transport) setupControlProtocol(ctx context.Context) error {
 	if t.closeStdin {
 		return nil // One-shot mode doesn't need control protocol
@@ -302,6 +324,9 @@ func (t *Transport) setupControlProtocol(ctx context.Context) error {
 }
 
 // needsProtocolHandshake returns true if control protocol handshake is required.
+//
+// needsProtocolHandshake 在需要控制协议握手时返回 true
+// （配置了钩子、权限回调、文件检查点、插件、Skill 或 SDK MCP 服务器时）。
 func (t *Transport) needsProtocolHandshake() bool {
 	if t.options == nil {
 		return false
@@ -315,6 +340,8 @@ func (t *Transport) needsProtocolHandshake() bool {
 }
 
 // SendMessage sends a message to the CLI subprocess.
+//
+// SendMessage 向 CLI 子进程发送一条消息。
 func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessage) error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -358,6 +385,8 @@ func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessag
 }
 
 // ReceiveMessages returns channels for receiving messages and errors.
+//
+// ReceiveMessages 返回用于接收消息与错误的通道；未连接时返回已关闭的通道。
 func (t *Transport) ReceiveMessages(_ context.Context) (<-chan shared.Message, <-chan error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -376,6 +405,9 @@ func (t *Transport) ReceiveMessages(_ context.Context) (<-chan shared.Message, <
 
 // Interrupt stops the current turn through the streaming control protocol.
 // It does not terminate the CLI process or disconnect the transport.
+//
+// Interrupt 通过流式控制协议中断当前轮次，
+// 不会终止 CLI 进程，也不会断开 transport。
 func (t *Transport) Interrupt(ctx context.Context) error {
 	t.mu.RLock()
 	if !t.connected || t.cmd == nil || t.cmd.Process == nil {
@@ -406,6 +438,9 @@ func (t *Transport) Interrupt(ctx context.Context) error {
 // Abort immediately force-stops the subprocess tree and performs the same
 // deterministic resource cleanup as Close. It is safe to call while a
 // graceful Close is already in progress; the in-progress close is escalated.
+//
+// Abort 立即强制停止整个子进程树，并执行与 Close 相同的确定性资源清理。
+// 即使已有优雅 Close 正在进行也可安全调用，此时会将其升级为强制停止。
 func (t *Transport) Abort() error {
 	atomic.StoreUint32(&t.cancellationRequested, 1)
 
@@ -440,6 +475,9 @@ func (t *Transport) Abort() error {
 
 // Close gracefully terminates the subprocess connection. It closes stdin and
 // allows the CLI a bounded interval to persist session state before force-stop.
+//
+// Close 优雅关闭子进程连接：先关闭 stdin，并给 CLI 一段有限时间以持久化
+// 会话状态，随后再强制停止。
 func (t *Transport) Close() error {
 	t.mu.Lock()
 	if t.closing {

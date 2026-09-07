@@ -8,59 +8,96 @@ import (
 )
 
 // Message represents any message type in the conversation.
+//
+// Message 表示对话中的任意消息类型。
 type Message = shared.Message
 
 // ContentBlock represents a content block within a message.
+//
+// ContentBlock 表示消息中的一个内容块。
 type ContentBlock = shared.ContentBlock
 
 // UserMessage represents a message from the user.
+//
+// UserMessage 表示来自用户的消息。
 type UserMessage = shared.UserMessage
 
 // AssistantMessage represents a message from the assistant.
+//
+// AssistantMessage 表示来自助手的消息。
 type AssistantMessage = shared.AssistantMessage
 
 // AssistantMessageError represents error types in assistant messages.
+//
+// AssistantMessageError 表示助手消息中的错误类型。
 type AssistantMessageError = shared.AssistantMessageError
 
 // SystemMessage represents a system prompt message.
+//
+// SystemMessage 表示系统提示消息。
 type SystemMessage = shared.SystemMessage
 
 // ResultMessage represents a result or status message.
+//
+// ResultMessage 表示结果或状态消息。
 type ResultMessage = shared.ResultMessage
 
 // TextBlock represents a text content block.
+//
+// TextBlock 表示文本内容块。
 type TextBlock = shared.TextBlock
 
 // ThinkingBlock represents a thinking content block.
+//
+// ThinkingBlock 表示思考内容块。
 type ThinkingBlock = shared.ThinkingBlock
 
 // ToolUseBlock represents a tool usage content block.
+//
+// ToolUseBlock 表示工具调用内容块。
 type ToolUseBlock = shared.ToolUseBlock
 
 // ToolResultBlock represents a tool result content block.
+//
+// ToolResultBlock 表示工具结果内容块。
 type ToolResultBlock = shared.ToolResultBlock
 
 // StreamMessage represents a message in the streaming protocol.
+//
+// StreamMessage 表示流式协议中的一条消息。
 type StreamMessage = shared.StreamMessage
 
 // RateLimitEventMessage is a session heartbeat carrying rate-limit window
 // state. Emitted on essentially every CLI session even when nothing is
 // constrained — see IsAllowed for the quick "all good" check.
+//
+// RateLimitEventMessage 是携带限流窗口状态的会话心跳。几乎每个 CLI 会话都会发出（
+// 即使并未受限）——可用 IsAllowed 快速判断“一切正常”。
 type RateLimitEventMessage = shared.RateLimitEventMessage
 
 // RateLimitInfo is the window state carried by RateLimitEventMessage.
+//
+// RateLimitInfo 是 RateLimitEventMessage 携带的限流窗口状态。
 type RateLimitInfo = shared.RateLimitInfo
 
 // MessageIterator provides iteration over messages.
+//
+// MessageIterator 提供对消息的迭代能力。
 type MessageIterator = shared.MessageIterator
 
 // StreamValidator tracks tool requests and results to detect incomplete streams.
+//
+// StreamValidator 跟踪工具请求与结果，用于检测不完整的流。
 type StreamValidator = shared.StreamValidator
 
 // StreamIssue represents a validation issue found in the stream.
+//
+// StreamIssue 表示在流中发现的一个校验问题。
 type StreamIssue = shared.StreamIssue
 
 // StreamStats provides statistics about the message stream.
+//
+// StreamStats 提供关于消息流的统计信息。
 type StreamStats = shared.StreamStats
 
 // Re-export message type constants
