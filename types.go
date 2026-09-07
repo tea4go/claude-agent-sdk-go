@@ -101,6 +101,8 @@ type StreamIssue = shared.StreamIssue
 type StreamStats = shared.StreamStats
 
 // Re-export message type constants
+//
+// 重新导出消息类型常量。
 const (
 	MessageTypeUser      = shared.MessageTypeUser
 	MessageTypeAssistant = shared.MessageTypeAssistant
@@ -119,11 +121,15 @@ const (
 )
 
 // Rate-limit window status constants.
+//
+// 限流窗口状态常量。
 const (
 	RateLimitStatusAllowed = shared.RateLimitStatusAllowed
 )
 
 // Re-export content block type constants
+//
+// 重新导出内容块类型常量。
 const (
 	ContentBlockTypeText       = shared.ContentBlockTypeText
 	ContentBlockTypeThinking   = shared.ContentBlockTypeThinking
@@ -132,6 +138,8 @@ const (
 )
 
 // Re-export stream event type constants for Event["type"] discrimination.
+//
+// 重新导出流事件类型常量，用于对 Event["type"] 进行判别。
 const (
 	StreamEventTypeContentBlockStart = shared.StreamEventTypeContentBlockStart
 	StreamEventTypeContentBlockDelta = shared.StreamEventTypeContentBlockDelta
@@ -142,6 +150,8 @@ const (
 )
 
 // Re-export AssistantMessageError constants
+//
+// 重新导出 AssistantMessageError 常量。
 const (
 	AssistantMessageErrorAuthFailed     = shared.AssistantMessageErrorAuthFailed
 	AssistantMessageErrorBilling        = shared.AssistantMessageErrorBilling
@@ -152,6 +162,8 @@ const (
 )
 
 // Re-export stop reason constants
+//
+// 重新导出停止原因（stop reason）常量。
 const (
 	StopReasonEndTurn      = shared.StopReasonEndTurn
 	StopReasonToolUse      = shared.StopReasonToolUse
@@ -160,12 +172,18 @@ const (
 )
 
 // AgentModel represents the model to use for an agent.
+//
+// AgentModel 表示一个代理（agent）所使用的模型。
 type AgentModel = shared.AgentModel
 
 // AgentDefinition defines a programmatic subagent.
+//
+// AgentDefinition 定义一个编程式子代理（subagent）。
 type AgentDefinition = shared.AgentDefinition
 
 // Re-export agent model constants
+//
+// 重新导出代理模型常量。
 const (
 	AgentModelSonnet  = shared.AgentModelSonnet
 	AgentModelOpus    = shared.AgentModelOpus
@@ -175,6 +193,9 @@ const (
 
 // Transport abstracts the communication layer with Claude Code CLI.
 // This interface stays in main package because it's used by client code.
+//
+// Transport 抽象与 Claude Code CLI 的通信层。
+// 该接口保留在主包中，因为它被客户端代码使用。
 type Transport interface {
 	Connect(ctx context.Context) error
 	SendMessage(ctx context.Context, message StreamMessage) error
@@ -198,57 +219,94 @@ type Transport interface {
 // AbortableTransport is an optional transport capability for immediately
 // terminating an active connection. Client.Abort uses it when available and
 // falls back to Transport.Close for legacy custom transports.
+//
+// AbortableTransport 是用于立即终止活动连接的可选 transport 能力。
+// Client.Abort 在可用时使用它，对旧式自定义 transport 则回退到 Transport.Close。
 type AbortableTransport interface {
 	Abort() error
 }
 
 // RawControlMessage wraps raw control protocol messages for passthrough.
+//
+// RawControlMessage 包装原始控制协议消息以供直通传递。
 type RawControlMessage = shared.RawControlMessage
 
 // RawMessage represents a CLI message with an unrecognized type field.
 // Preserves the original type and all data for forward-compatible inspection.
+//
+// RawMessage 表示具有未识别 type 字段的 CLI 消息；
+// 保留原始类型与全部数据以便进行前向兼容的检查。
 type RawMessage = shared.RawMessage
 
 // Usage represents token usage information from the Claude API.
 // Present on AssistantMessage (per-turn) and ResultMessage (conversation total).
+//
+// Usage 表示来自 Claude API 的 token 使用信息。
+// 出现在 AssistantMessage（每轮）与 ResultMessage（对话总计）上。
 type Usage = shared.Usage
 
 // StreamEvent represents a partial message update during streaming.
+//
+// StreamEvent 表示流式传输过程中的一次部分消息更新。
 type StreamEvent = shared.StreamEvent
 
 // Control protocol types for SDK-CLI bidirectional communication.
+//
+// 以下为用于 SDK↔CLI 双向通信的控制协议类型。
 
 // SDKControlRequest represents a control request sent to the CLI.
+//
+// SDKControlRequest 表示发送给 CLI 的控制请求。
 type SDKControlRequest = control.SDKControlRequest
 
 // SDKControlResponse represents a control response received from the CLI.
+//
+// SDKControlResponse 表示从 CLI 接收的控制响应。
 type SDKControlResponse = control.SDKControlResponse
 
 // ControlResponse is the inner response structure.
+//
+// ControlResponse 是内层的响应结构。
 type ControlResponse = control.Response
 
 // InitializeRequest for control protocol handshake.
+//
+// InitializeRequest 用于控制协议握手。
 type InitializeRequest = control.InitializeRequest
 
 // InitializeResponse from CLI with supported capabilities.
+//
+// InitializeResponse 是 CLI 返回的、包含所支持能力的响应。
 type InitializeResponse = control.InitializeResponse
 
 // InterruptRequest to interrupt current operation via control protocol.
+//
+// InterruptRequest 用于通过控制协议中断当前操作。
 type InterruptRequest = control.InterruptRequest
 
 // SetPermissionModeRequest to change permission mode via control protocol.
+//
+// SetPermissionModeRequest 用于通过控制协议切换权限模式。
 type SetPermissionModeRequest = control.SetPermissionModeRequest
 
 // SetModelRequest to change AI model via control protocol.
+//
+// SetModelRequest 用于通过控制协议切换 AI 模型。
 type SetModelRequest = control.SetModelRequest
 
 // GetMcpStatusRequest to query MCP server status via control protocol.
+//
+// GetMcpStatusRequest 用于通过控制协议查询 MCP 服务器状态。
 type GetMcpStatusRequest = control.GetMcpStatusRequest
 
 // McpServerConnectionStatus represents the connection state of an MCP server.
+//
+// McpServerConnectionStatus 表示一个 MCP 服务器的连接状态。
 type McpServerConnectionStatus = control.McpServerConnectionStatus
 
 // Re-export MCP server connection status constants
+//
+// 重新导出 MCP 服务器连接状态常量。
 const (
 	McpServerConnectionStatusConnected = control.McpServerConnectionStatusConnected
 	McpServerConnectionStatusFailed    = control.McpServerConnectionStatusFailed
@@ -258,6 +316,8 @@ const (
 )
 
 // Re-export MCP server config type constants for McpServerStatusConfig.Type.
+//
+// 重新导出 MCP 服务器配置类型常量，用于 McpServerStatusConfig.Type。
 const (
 	McpServerConfigTypeStdio    = control.McpServerConfigTypeStdio
 	McpServerConfigTypeSSE      = control.McpServerConfigTypeSSE
@@ -267,32 +327,51 @@ const (
 )
 
 // McpServerInfo contains version information about a connected MCP server.
+//
+// McpServerInfo 包含已连接 MCP 服务器的版本信息。
 type McpServerInfo = control.McpServerInfo
 
 // McpToolAnnotations describes behavioral hints for an MCP tool.
+//
+// McpToolAnnotations 描述一个 MCP 工具的行为提示。
 type McpToolAnnotations = control.McpToolAnnotations
 
 // McpToolInfo describes a tool exposed by an MCP server.
+//
+// McpToolInfo 描述由 MCP 服务器暴露的一个工具。
 type McpToolInfo = control.McpToolInfo
 
 // McpServerStatusConfig covers all MCP server config variants, discriminated by Type.
+//
+// McpServerStatusConfig 涵盖所有 MCP 服务器配置变体，通过 Type 字段判别。
 type McpServerStatusConfig = control.McpServerStatusConfig
 
 // McpServerStatus contains the full status of a single MCP server.
+//
+// McpServerStatus 包含单个 MCP 服务器的完整状态。
 type McpServerStatus = control.McpServerStatus
 
 // McpStatusResponse is the response payload for a GetMcpStatus request.
+//
+// McpStatusResponse 是 GetMcpStatus 请求的响应载荷。
 type McpStatusResponse = control.McpStatusResponse
 
 // SlashCommand describes a CLI slash command suitable for input suggestions.
+//
+// SlashCommand 描述一个适用于输入建议的 CLI 斜杠命令。
 type SlashCommand = control.SlashCommand
 
 // ControlProtocol manages bidirectional control communication with CLI.
+//
+// ControlProtocol 管理与 CLI 的双向控制通信。
 type ControlProtocol = control.Protocol
 
 // Re-export control protocol subtype constants
+//
+// 重新导出控制协议子类型（subtype）常量。
 const (
 	// Control request subtypes
+	// 控制请求子类型。
 	SubtypeInterrupt         = control.SubtypeInterrupt
 	SubtypeCanUseTool        = control.SubtypeCanUseTool
 	SubtypeInitialize        = control.SubtypeInitialize
@@ -304,6 +383,7 @@ const (
 	SubtypeRewindFiles       = control.SubtypeRewindFiles
 
 	// Control response subtypes
+	// 控制响应子类型。
 	ResponseSubtypeSuccess = control.ResponseSubtypeSuccess
 	ResponseSubtypeError   = control.ResponseSubtypeError
 )

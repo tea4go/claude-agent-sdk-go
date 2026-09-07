@@ -10,92 +10,148 @@ import (
 )
 
 // Options contains configuration for Claude Code CLI interactions.
+//
+// Options 包含与 Claude Code CLI 交互的配置。
 type Options = shared.Options
 
 // PermissionMode defines the permission handling mode.
+//
+// PermissionMode 定义权限处理模式。
 type PermissionMode = shared.PermissionMode
 
 // McpServerType defines the type of MCP server.
+//
+// McpServerType 定义 MCP 服务器的类型。
 type McpServerType = shared.McpServerType
 
 // McpServerConfig represents an MCP server configuration.
+//
+// McpServerConfig 表示一个 MCP 服务器配置。
 type McpServerConfig = shared.McpServerConfig
 
 // McpStdioServerConfig represents a stdio MCP server configuration.
+//
+// McpStdioServerConfig 表示一个 stdio 类型的 MCP 服务器配置。
 type McpStdioServerConfig = shared.McpStdioServerConfig
 
 // McpSSEServerConfig represents an SSE MCP server configuration.
+//
+// McpSSEServerConfig 表示一个 SSE 类型的 MCP 服务器配置。
 type McpSSEServerConfig = shared.McpSSEServerConfig
 
 // McpHTTPServerConfig represents an HTTP MCP server configuration.
+//
+// McpHTTPServerConfig 表示一个 HTTP 类型的 MCP 服务器配置。
 type McpHTTPServerConfig = shared.McpHTTPServerConfig
 
 // SdkBeta represents a beta feature identifier.
+//
+// SdkBeta 表示一个 beta 特性标识符。
 type SdkBeta = shared.SdkBeta
 
 // ToolsPreset represents a preset tools configuration.
+//
+// ToolsPreset 表示一个预设的工具配置。
 type ToolsPreset = shared.ToolsPreset
 
 // SettingSource represents a settings source location.
+//
+// SettingSource 表示一个设置来源位置。
 type SettingSource = shared.SettingSource
 
 // SandboxSettings configures sandbox behavior for bash command execution.
+//
+// SandboxSettings 配置 bash 命令执行的沙箱行为。
 type SandboxSettings = shared.SandboxSettings
 
 // SandboxNetworkConfig configures network access within sandbox.
+//
+// SandboxNetworkConfig 配置沙箱内的网络访问。
 type SandboxNetworkConfig = shared.SandboxNetworkConfig
 
 // SandboxIgnoreViolations specifies patterns to ignore during sandbox violations.
+//
+// SandboxIgnoreViolations 指定在沙箱违规时应忽略的模式。
 type SandboxIgnoreViolations = shared.SandboxIgnoreViolations
 
 // SdkPluginType represents the type of SDK plugin.
+//
+// SdkPluginType 表示 SDK 插件的类型。
 type SdkPluginType = shared.SdkPluginType
 
 // SdkPluginConfig represents a plugin configuration.
+//
+// SdkPluginConfig 表示一个插件配置。
 type SdkPluginConfig = shared.SdkPluginConfig
 
 // SkillRegistryConfig represents an external directory of Skills that should be
 // exposed through a temporary local plugin wrapper.
+//
+// SkillRegistryConfig 表示一个外部技能目录，应通过临时本地插件封装对外暴露。
 type SkillRegistryConfig = shared.SkillRegistryConfig
 
 // OutputFormat specifies the format for structured output.
+//
+// OutputFormat 指定结构化输出的格式。
 type OutputFormat = shared.OutputFormat
 
 // EffortLevel controls how many tokens Claude spends per response.
+//
+// EffortLevel 控制 Claude 在每次响应中花费多少 token。
 type EffortLevel = shared.EffortLevel
 
 // CanUseToolCallback is invoked when CLI requests permission to use a tool.
 // The callback receives tool name, input parameters, and permission context.
 // Return PermissionResultAllow to permit, PermissionResultDeny to deny.
 // The callback must be thread-safe as it may be invoked concurrently.
+//
+// CanUseToolCallback 在 CLI 请求使用某工具的权限时被调用。
+// 回调接收工具名、输入参数与权限上下文；返回 PermissionResultAllow 表示允许，
+// PermissionResultDeny 表示拒绝。回调可能被并发调用，必须线程安全。
 type CanUseToolCallback = control.CanUseToolCallback
 
 // PermissionResult is the interface for permission callback results.
 // Implementations are PermissionResultAllow and PermissionResultDeny.
+//
+// PermissionResult 是权限回调结果的接口；实现为 PermissionResultAllow 与 PermissionResultDeny。
 type PermissionResult = control.PermissionResult
 
 // PermissionResultAllow permits tool execution with optional modifications.
 // Use NewPermissionResultAllow() to create with proper defaults.
+//
+// PermissionResultAllow 允许工具执行，并可附带可选修改。请使用 NewPermissionResultAllow() 创建。
 type PermissionResultAllow = control.PermissionResultAllow
 
 // PermissionResultDeny prevents tool execution.
 // Use NewPermissionResultDeny(message) to create with proper defaults.
+//
+// PermissionResultDeny 阻止工具执行。请使用 NewPermissionResultDeny(message) 创建。
 type PermissionResultDeny = control.PermissionResultDeny
 
 // ToolPermissionContext provides context for permission callbacks.
 // Contains suggestions from CLI for permission decisions.
+//
+// ToolPermissionContext 为权限回调提供上下文，包含 CLI 对权限决策的建议。
 type ToolPermissionContext = control.ToolPermissionContext
 
 // PermissionUpdate represents a dynamic permission rule update.
+//
+// PermissionUpdate 表示一次动态的权限规则更新。
 type PermissionUpdate = control.PermissionUpdate
 
 // PermissionRuleValue represents a permission rule.
+//
+// PermissionRuleValue 表示一条权限规则。
 type PermissionRuleValue = control.PermissionRuleValue
 
 // PermissionUpdateType specifies the type of permission update.
+//
+// PermissionUpdateType 指定权限更新的类型。
 type PermissionUpdateType = control.PermissionUpdateType
 
 // Re-export constants
+//
+// 重新导出常量。
 const (
 	PermissionModeDefault           = shared.PermissionModeDefault
 	PermissionModeAcceptEdits       = shared.PermissionModeAcceptEdits
@@ -117,6 +173,8 @@ const (
 )
 
 // Permission update type constants
+//
+// 权限更新类型常量。
 const (
 	PermissionUpdateTypeAddRules          = control.PermissionUpdateTypeAddRules
 	PermissionUpdateTypeReplaceRules      = control.PermissionUpdateTypeReplaceRules
@@ -127,9 +185,13 @@ const (
 )
 
 // Option configures Options using the functional options pattern.
+//
+// Option 使用函数式选项模式配置 Options。
 type Option func(*Options)
 
 // WithAllowedTools sets the allowed tools list.
+//
+// WithAllowedTools 设置允许使用的工具列表。
 func WithAllowedTools(tools ...string) Option {
 	return func(o *Options) {
 		o.AllowedTools = tools
@@ -137,6 +199,8 @@ func WithAllowedTools(tools ...string) Option {
 }
 
 // WithDisallowedTools sets the disallowed tools list.
+//
+// WithDisallowedTools 设置禁止使用的工具列表。
 func WithDisallowedTools(tools ...string) Option {
 	return func(o *Options) {
 		o.DisallowedTools = tools
@@ -144,6 +208,8 @@ func WithDisallowedTools(tools ...string) Option {
 }
 
 // WithSkillImplementations sets in-process skill implementations directly.
+//
+// WithSkillImplementations 直接设置进程内的技能实现。
 func WithSkillImplementations(skills map[string]func(context.Context, string) (string, error)) Option {
 	return func(o *Options) {
 		o.SkillImplementations = skills
@@ -151,6 +217,8 @@ func WithSkillImplementations(skills map[string]func(context.Context, string) (s
 }
 
 // WithSkillImplementation registers a single in-process skill implementation.
+//
+// WithSkillImplementation 注册单个进程内技能实现。
 func WithSkillImplementation(name string, handler func(context.Context, string) (string, error)) Option {
 	return func(o *Options) {
 		if o.SkillImplementations == nil {
@@ -161,6 +229,8 @@ func WithSkillImplementation(name string, handler func(context.Context, string) 
 }
 
 // WithTools sets available tools as a list of tool names.
+//
+// WithTools 以工具名列表的形式设置可用工具。
 func WithTools(tools ...string) Option {
 	return func(o *Options) {
 		o.Tools = tools
@@ -168,6 +238,8 @@ func WithTools(tools ...string) Option {
 }
 
 // WithToolsPreset sets tools to a preset configuration.
+//
+// WithToolsPreset 将工具设置为一个预设配置。
 func WithToolsPreset(preset string) Option {
 	return func(o *Options) {
 		o.Tools = ToolsPreset{
@@ -178,11 +250,15 @@ func WithToolsPreset(preset string) Option {
 }
 
 // WithClaudeCodeTools sets tools to the claude_code preset.
+//
+// WithClaudeCodeTools 将工具设置为 claude_code 预设。
 func WithClaudeCodeTools() Option {
 	return WithToolsPreset("claude_code")
 }
 
 // WithSystemPrompt sets the system prompt.
+//
+// WithSystemPrompt 设置系统提示词。
 func WithSystemPrompt(prompt string) Option {
 	return func(o *Options) {
 		o.SystemPrompt = &prompt
@@ -190,6 +266,8 @@ func WithSystemPrompt(prompt string) Option {
 }
 
 // WithAppendSystemPrompt sets the append system prompt.
+//
+// WithAppendSystemPrompt 设置追加到系统提示词后的内容。
 func WithAppendSystemPrompt(prompt string) Option {
 	return func(o *Options) {
 		o.AppendSystemPrompt = &prompt
@@ -197,6 +275,8 @@ func WithAppendSystemPrompt(prompt string) Option {
 }
 
 // WithModel sets the model to use.
+//
+// WithModel 设置要使用的模型。
 func WithModel(model string) Option {
 	return func(o *Options) {
 		o.Model = &model
@@ -204,6 +284,8 @@ func WithModel(model string) Option {
 }
 
 // WithFallbackModel sets the fallback model when primary model is unavailable.
+//
+// WithFallbackModel 设置主模型不可用时的回退模型。
 func WithFallbackModel(model string) Option {
 	return func(o *Options) {
 		o.FallbackModel = &model
@@ -213,6 +295,9 @@ func WithFallbackModel(model string) Option {
 // WithEffort sets the effort level (--effort), controlling how many tokens
 // Claude spends per response. Known levels are EffortLow..EffortMax, but any
 // value is passed through to the CLI to tolerate future levels.
+//
+// WithEffort 设置努力级别（--effort），控制 Claude 每次响应花费多少 token。
+// 已知级别为 EffortLow..EffortMax，但任意值都会直通传递给 CLI 以兼容未来级别。
 func WithEffort(effort EffortLevel) Option {
 	return func(o *Options) {
 		s := string(effort)
@@ -221,6 +306,8 @@ func WithEffort(effort EffortLevel) Option {
 }
 
 // WithMaxBudgetUSD sets the maximum budget in USD for API usage.
+//
+// WithMaxBudgetUSD 设置 API 使用的最大预算（美元）。
 func WithMaxBudgetUSD(budget float64) Option {
 	return func(o *Options) {
 		o.MaxBudgetUSD = &budget
@@ -228,6 +315,8 @@ func WithMaxBudgetUSD(budget float64) Option {
 }
 
 // WithUser sets the user identifier for tracking and billing.
+//
+// WithUser 设置用于追踪与计费的用户标识符。
 func WithUser(user string) Option {
 	return func(o *Options) {
 		o.User = &user
@@ -235,6 +324,8 @@ func WithUser(user string) Option {
 }
 
 // WithMaxBufferSize sets the maximum buffer size for CLI output.
+//
+// WithMaxBufferSize 设置 CLI 输出的最大缓冲区大小。
 func WithMaxBufferSize(size int) Option {
 	return func(o *Options) {
 		o.MaxBufferSize = &size
@@ -242,6 +333,8 @@ func WithMaxBufferSize(size int) Option {
 }
 
 // WithMaxThinkingTokens sets the maximum thinking tokens.
+//
+// WithMaxThinkingTokens 设置最大思考 token 数。
 func WithMaxThinkingTokens(tokens int) Option {
 	return func(o *Options) {
 		o.MaxThinkingTokens = tokens
@@ -249,6 +342,8 @@ func WithMaxThinkingTokens(tokens int) Option {
 }
 
 // WithPermissionMode sets the permission mode.
+//
+// WithPermissionMode 设置权限模式。
 func WithPermissionMode(mode PermissionMode) Option {
 	return func(o *Options) {
 		o.PermissionMode = &mode
@@ -256,6 +351,8 @@ func WithPermissionMode(mode PermissionMode) Option {
 }
 
 // WithPermissionPromptToolName sets the permission prompt tool name.
+//
+// WithPermissionPromptToolName 设置权限提示工具的名称。
 func WithPermissionPromptToolName(toolName string) Option {
 	return func(o *Options) {
 		o.PermissionPromptToolName = &toolName
@@ -263,6 +360,8 @@ func WithPermissionPromptToolName(toolName string) Option {
 }
 
 // WithContinueConversation enables conversation continuation.
+//
+// WithContinueConversation 启用对话延续。
 func WithContinueConversation(continueConversation bool) Option {
 	return func(o *Options) {
 		o.ContinueConversation = continueConversation
@@ -270,6 +369,8 @@ func WithContinueConversation(continueConversation bool) Option {
 }
 
 // WithResume sets the session ID to resume.
+//
+// WithResume 设置要恢复（resume）的会话 ID。
 func WithResume(sessionID string) Option {
 	return func(o *Options) {
 		o.Resume = &sessionID
@@ -280,6 +381,9 @@ func WithResume(sessionID string) Option {
 // to the CLI --session-id flag. The ID must be a valid UUID and is mutually
 // exclusive with WithResume (enforced by Options.Validate before the CLI
 // subprocess starts).
+//
+// WithSessionID 为新对话设置特定的会话 ID，对应 CLI 的 --session-id 参数。
+// ID 必须是合法 UUID，且与 WithResume 互斥（在 CLI 子进程启动前由 Options.Validate 强制校验）。
 func WithSessionID(sessionID string) Option {
 	return func(o *Options) {
 		o.SessionID = &sessionID
@@ -287,6 +391,8 @@ func WithSessionID(sessionID string) Option {
 }
 
 // WithCwd sets the working directory.
+//
+// WithCwd 设置工作目录。
 func WithCwd(cwd string) Option {
 	return func(o *Options) {
 		o.Cwd = &cwd
@@ -294,6 +400,8 @@ func WithCwd(cwd string) Option {
 }
 
 // WithAddDirs adds directories to the context.
+//
+// WithAddDirs 向上下文中添加目录。
 func WithAddDirs(dirs ...string) Option {
 	return func(o *Options) {
 		o.AddDirs = dirs
@@ -301,6 +409,8 @@ func WithAddDirs(dirs ...string) Option {
 }
 
 // WithMcpServers sets the MCP server configurations.
+//
+// WithMcpServers 设置 MCP 服务器配置。
 func WithMcpServers(servers map[string]McpServerConfig) Option {
 	return func(o *Options) {
 		o.McpServers = servers
@@ -310,6 +420,9 @@ func WithMcpServers(servers map[string]McpServerConfig) Option {
 // WithSdkMcpServer adds an in-process SDK MCP server by name.
 // This is a convenience method for adding SDK MCP servers created with CreateSDKMcpServer.
 // Multiple calls accumulate servers.
+//
+// WithSdkMcpServer 按名称添加一个进程内的 SDK MCP 服务器。
+// 这是添加由 CreateSDKMcpServer 创建的 SDK MCP 服务器的便捷方法；多次调用会累积服务器。
 //
 // Example:
 //
@@ -328,6 +441,8 @@ func WithSdkMcpServer(name string, server *McpSdkServerConfig) Option {
 }
 
 // WithMaxTurns sets the maximum number of conversation turns.
+//
+// WithMaxTurns 设置对话的最大轮数。
 func WithMaxTurns(turns int) Option {
 	return func(o *Options) {
 		o.MaxTurns = turns
@@ -335,6 +450,8 @@ func WithMaxTurns(turns int) Option {
 }
 
 // WithSettings sets the settings file path or JSON string.
+//
+// WithSettings 设置配置文件路径或 JSON 字符串。
 func WithSettings(settings string) Option {
 	return func(o *Options) {
 		o.Settings = &settings
@@ -344,6 +461,9 @@ func WithSettings(settings string) Option {
 // WithForkSession enables forking to a new session ID when resuming.
 // When true, resumed sessions fork to a new session ID rather than
 // continuing the previous session.
+//
+// WithForkSession 启用在恢复会话时派生（fork）到新的会话 ID。
+// 为 true 时，被恢复的会话会派生到新的会话 ID，而不是延续原会话。
 func WithForkSession(fork bool) Option {
 	return func(o *Options) {
 		o.ForkSession = fork
@@ -352,6 +472,9 @@ func WithForkSession(fork bool) Option {
 
 // WithSettingSources sets which settings sources to load.
 // Valid sources are SettingSourceUser, SettingSourceProject, and SettingSourceLocal.
+//
+// WithSettingSources 设置要加载的配置来源。
+// 合法来源为 SettingSourceUser、SettingSourceProject 与 SettingSourceLocal。
 func WithSettingSources(sources ...SettingSource) Option {
 	return func(o *Options) {
 		if sources == nil {
@@ -364,6 +487,9 @@ func WithSettingSources(sources ...SettingSource) Option {
 
 // SkillsAll is the sentinel value for enabling every discovered Skill.
 // Passing this to WithSkills enables all Skills found on the filesystem.
+//
+// SkillsAll 是用于启用所有已发现技能（Skill）的哨兵值。
+// 将其传给 WithSkills 会启用文件系统上发现的全部技能。
 const SkillsAll = shared.SkillsAll
 
 // WithSkills sets the Skills configuration directly.
@@ -371,6 +497,11 @@ const SkillsAll = shared.SkillsAll
 // a []string of Skill names to enable only those, or []string{} to disable all.
 // When set, SettingSources defaults to [user, project] if unset so the CLI
 // discovers installed Skills. Mirrors the Python SDK's skills option.
+//
+// WithSkills 直接设置技能（Skill）配置。
+// 可接受字符串 "all"（使用 SkillsAll）以启用全部已发现技能、[]string 技能名列表以仅启用这些技能、
+// 或 []string{} 以禁用全部技能。设置后，若 SettingSources 未设置则默认为 [user, project]，
+// 以便 CLI 发现已安装的技能。对应 Python SDK 的 skills 选项。
 func WithSkills(skills any) Option {
 	return func(o *Options) {
 		o.Skills = skills
@@ -378,6 +509,8 @@ func WithSkills(skills any) Option {
 }
 
 // WithSkillsAll enables every discovered Skill in the session.
+//
+// WithSkillsAll 在会话中启用所有已发现的技能。
 func WithSkillsAll() Option {
 	return func(o *Options) {
 		o.Skills = SkillsAll
@@ -387,6 +520,9 @@ func WithSkillsAll() Option {
 // WithSkillsList enables only the named Skills.
 // Names match the name field in SKILL.md or the Skill's directory name.
 // Use "plugin:skill" for plugin-provided Skills.
+//
+// WithSkillsList 仅启用指定名称的技能。
+// 名称匹配 SKILL.md 中的 name 字段或技能所在目录名；插件提供的技能使用 "plugin:skill" 形式。
 func WithSkillsList(names ...string) Option {
 	return func(o *Options) {
 		// Always store a non-nil slice so callers can distinguish from unset.
@@ -397,6 +533,8 @@ func WithSkillsList(names ...string) Option {
 }
 
 // WithSkillsDisabled disables all Skills in the session.
+//
+// WithSkillsDisabled 在会话中禁用所有技能。
 func WithSkillsDisabled() Option {
 	return func(o *Options) {
 		o.Skills = []string{}
@@ -404,6 +542,8 @@ func WithSkillsDisabled() Option {
 }
 
 // WithExtraArgs sets arbitrary CLI flags via ExtraArgs.
+//
+// WithExtraArgs 通过 ExtraArgs 设置任意的 CLI 命令行参数。
 func WithExtraArgs(args map[string]*string) Option {
 	return func(o *Options) {
 		o.ExtraArgs = args
@@ -411,6 +551,8 @@ func WithExtraArgs(args map[string]*string) Option {
 }
 
 // WithCLIPath sets a custom CLI path.
+//
+// WithCLIPath 设置自定义的 CLI 可执行文件路径。
 func WithCLIPath(path string) Option {
 	return func(o *Options) {
 		o.CLIPath = &path
@@ -420,6 +562,9 @@ func WithCLIPath(path string) Option {
 // WithEnv sets environment variables for the subprocess.
 // Multiple calls to WithEnv or WithEnvVar merge the values.
 // Later calls override earlier ones for the same key.
+//
+// WithEnv 为子进程设置环境变量。
+// 多次调用 WithEnv 或 WithEnvVar 会合并取值；对于相同的键，后续调用会覆盖先前的值。
 func WithEnv(env map[string]string) Option {
 	return func(o *Options) {
 		if o.ExtraEnv == nil {
@@ -434,6 +579,8 @@ func WithEnv(env map[string]string) Option {
 
 // WithEnvVar sets a single environment variable for the subprocess.
 // This is a convenience method for setting individual variables.
+//
+// WithEnvVar 为子进程设置单个环境变量，是设置单个变量的便捷方法。
 func WithEnvVar(key, value string) Option {
 	return func(o *Options) {
 		if o.ExtraEnv == nil {
@@ -445,6 +592,8 @@ func WithEnvVar(key, value string) Option {
 
 // WithBetas sets the SDK beta features to enable.
 // See https://docs.anthropic.com/en/api/beta-headers
+//
+// WithBetas 设置要启用的 SDK beta 特性。参见 https://docs.anthropic.com/en/api/beta-headers
 func WithBetas(betas ...SdkBeta) Option {
 	return func(o *Options) {
 		o.Betas = betas
@@ -452,6 +601,8 @@ func WithBetas(betas ...SdkBeta) Option {
 }
 
 // WithSandbox sets the sandbox settings for bash command isolation.
+//
+// WithSandbox 设置用于隔离 bash 命令执行的沙箱配置。
 func WithSandbox(sandbox *SandboxSettings) Option {
 	return func(o *Options) {
 		o.Sandbox = sandbox
@@ -460,6 +611,8 @@ func WithSandbox(sandbox *SandboxSettings) Option {
 
 // WithSandboxEnabled enables or disables sandbox.
 // If sandbox settings don't exist, they are initialized.
+//
+// WithSandboxEnabled 启用或禁用沙箱；若沙箱配置不存在则会被初始化。
 func WithSandboxEnabled(enabled bool) Option {
 	return func(o *Options) {
 		if o.Sandbox == nil {
@@ -471,6 +624,8 @@ func WithSandboxEnabled(enabled bool) Option {
 
 // WithAutoAllowBashIfSandboxed sets whether to auto-approve bash when sandboxed.
 // If sandbox settings don't exist, they are initialized.
+//
+// WithAutoAllowBashIfSandboxed 设置在沙箱模式下是否自动批准 bash 命令；若沙箱配置不存在则会被初始化。
 func WithAutoAllowBashIfSandboxed(autoAllow bool) Option {
 	return func(o *Options) {
 		if o.Sandbox == nil {
@@ -482,6 +637,8 @@ func WithAutoAllowBashIfSandboxed(autoAllow bool) Option {
 
 // WithSandboxExcludedCommands sets commands that always bypass sandbox.
 // If sandbox settings don't exist, they are initialized.
+//
+// WithSandboxExcludedCommands 设置始终绕过沙箱的命令；若沙箱配置不存在则会被初始化。
 func WithSandboxExcludedCommands(commands ...string) Option {
 	return func(o *Options) {
 		if o.Sandbox == nil {
@@ -493,6 +650,8 @@ func WithSandboxExcludedCommands(commands ...string) Option {
 
 // WithSandboxNetwork sets the network configuration for sandbox.
 // If sandbox settings don't exist, they are initialized.
+//
+// WithSandboxNetwork 设置沙箱的网络配置；若沙箱配置不存在则会被初始化。
 func WithSandboxNetwork(network *SandboxNetworkConfig) Option {
 	return func(o *Options) {
 		if o.Sandbox == nil {
