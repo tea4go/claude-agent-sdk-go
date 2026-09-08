@@ -1,4 +1,6 @@
 // Package main demonstrates basic usage of the Claude Agent SDK Query API.
+//
+// Package main 演示 Claude Agent SDK Query API 的基础用法。
 package main
 
 import (
@@ -16,7 +18,7 @@ func main() {
 
 	ctx := context.Background()
 
-	// Create and execute query
+	// 创建并执行一次性查询。
 	iterator, err := claudecode.Query(ctx, "What is 2+2?")
 	if err != nil {
 		if cliErr := claudecode.AsCLINotFoundError(err); cliErr != nil {
@@ -34,7 +36,7 @@ func main() {
 
 	fmt.Println("\nResponse:")
 
-	// Iterate through messages
+	// 逐条遍历返回消息，并按消息类型提取文本或错误结果。
 	for {
 		message, err := iterator.Next(ctx)
 		if err != nil {
@@ -48,7 +50,7 @@ func main() {
 			break
 		}
 
-		// Handle different message types
+		// 根据消息类型分别处理正文与结果状态。
 		switch msg := message.(type) {
 		case *claudecode.AssistantMessage:
 			for _, block := range msg.Content {

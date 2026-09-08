@@ -1,4 +1,6 @@
 // Package main demonstrates WithClient context manager pattern.
+//
+// Package main 演示 WithClient 上下文管理模式，以及它与手动连接方式的区别。
 package main
 
 import (
@@ -16,7 +18,7 @@ func main() {
 	ctx := context.Background()
 	question := "What are the benefits of using context managers in programming?"
 
-	// WithClient pattern (recommended)
+	// 先展示推荐写法：由 WithClient 负责连接和清理。
 	fmt.Println("\n--- WithClient Pattern (Recommended) ---")
 	fmt.Println("[+] Automatic connect/disconnect")
 	fmt.Println("[+] Guaranteed cleanup on errors")
@@ -34,7 +36,7 @@ func main() {
 		log.Printf("WithClient failed: %v", err)
 	}
 
-	// Manual pattern (still supported)
+	// 再展示手动写法，便于对比样板代码和出错点。
 	fmt.Println("\n--- Manual Pattern (Still Supported) ---")
 	fmt.Println("[!] Manual connect/disconnect required")
 	fmt.Println("[!] Easy to forget cleanup")
@@ -52,7 +54,7 @@ func main() {
 		log.Printf("Manual pattern failed: %v", err)
 	}
 
-	// Error handling demonstration
+	// 最后补一个错误处理演示，看看清理是否仍然可靠。
 	fmt.Println("\n--- Error Handling ---")
 	if err := demonstrateErrorScenarios(ctx); err != nil {
 		log.Printf("Error demo failed: %v", err)
@@ -61,6 +63,9 @@ func main() {
 	fmt.Println("\nRecommendation: Use WithClient for automatic resource management")
 }
 
+// demonstrateWithClient shows the recommended automatic resource-management pattern.
+//
+// demonstrateWithClient 展示推荐的自动资源管理写法。
 func demonstrateWithClient(ctx context.Context, question string) error {
 	fmt.Println("Using WithClient for automatic resource management...")
 
@@ -80,6 +85,9 @@ func demonstrateWithClient(ctx context.Context, question string) error {
 	})
 }
 
+// demonstrateManualPattern shows the equivalent manual Connect/Disconnect flow.
+//
+// demonstrateManualPattern 展示等价的手动 Connect / Disconnect 流程。
 func demonstrateManualPattern(ctx context.Context, question string) error {
 	fmt.Println("Using manual Connect/Disconnect pattern...")
 
@@ -110,10 +118,13 @@ func demonstrateManualPattern(ctx context.Context, question string) error {
 	return nil
 }
 
+// demonstrateErrorScenarios verifies how WithClient behaves under common failures.
+//
+// demonstrateErrorScenarios 演示 WithClient 在常见失败场景下的行为。
 func demonstrateErrorScenarios(ctx context.Context) error {
 	fmt.Println("Testing WithClient error handling...")
 
-	// Test context cancellation
+	// 测试上下文取消时，WithClient 是否会正确返回并完成清理。
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel() // Cancel immediately
 
@@ -124,7 +135,7 @@ func demonstrateErrorScenarios(ctx context.Context) error {
 		fmt.Printf("[+] WithClient handled cancellation: %v\n", err)
 	}
 
-	// Test function error
+	// 测试业务函数主动返回错误时，连接是否同样会被自动关闭。
 	err = claudecode.WithClient(ctx, func(client claudecode.Client) error {
 		return fmt.Errorf("simulated application error")
 	})
@@ -136,7 +147,9 @@ func demonstrateErrorScenarios(ctx context.Context) error {
 	return nil
 }
 
-// showFirstLines displays first lines of response from client
+// showFirstLines displays first lines of response from client.
+//
+// showFirstLines 只展示前几行响应，避免示例输出过长。
 func showFirstLines(ctx context.Context, client claudecode.Client, maxLines, maxWidth int) error {
 	msgChan := client.ReceiveMessages(ctx)
 	linesShown := 0
@@ -176,12 +189,14 @@ func showFirstLines(ctx context.Context, client claudecode.Client, maxLines, max
 		}
 	}
 
-	// Drain remaining messages
+	// 读够目标行数后，把剩余消息清掉，避免影响下一轮查询。
 	drainMessages(msgChan)
 	return nil
 }
 
-// drainMessages consumes remaining messages from a channel
+// drainMessages consumes remaining messages from a channel.
+//
+// drainMessages 清空通道里残留的消息，直到通道暂时无数据或结束。
 func drainMessages(msgChan <-chan claudecode.Message) {
 	for {
 		select {

@@ -1,3 +1,7 @@
+// Package main demonstrates invoking registered in-process skills through the
+// SDK query interface.
+//
+// Package main 演示如何通过 Query 接口调用已注册的进程内技能。
 package main
 
 import (
@@ -12,6 +16,7 @@ import (
 func main() {
 	ctx := context.Background()
 
+	// 这里保留了注册技能的最小示例，默认注释掉，便于按需打开做本地实验。
 	// claudecode.RegisterSkill("echo", func(_ context.Context, args string) (string, error) {
 	// 	return "E:" + args, nil
 	// })
@@ -19,6 +24,7 @@ func main() {
 	// 	return "", errors.New("skill failed")
 	// })
 
+	// 直接用 "/skill args" 形式发起查询，SDK 会在本地尝试解析并执行技能。
 	iterator, err := claudecode.Query(
 		ctx,
 		"/find-skills superpowers",
@@ -39,6 +45,7 @@ func main() {
 			panic(err)
 		}
 
+		// 助手消息输出技能正文；结果消息补充最终状态。
 		switch m := msg.(type) {
 		case *claudecode.AssistantMessage:
 			for _, block := range m.Content {

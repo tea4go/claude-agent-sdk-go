@@ -23,6 +23,9 @@
 // - message_stop: Message generation complete
 //
 // Run: go run main.go
+//
+// Package main 演示部分流式输出（Partial Streaming），帮助理解如何用 StreamEvent
+// 做逐步渲染、输入中提示和实时状态更新。
 package main
 
 import (
@@ -38,18 +41,18 @@ func main() {
 	fmt.Println("=============================================")
 	fmt.Println()
 
-	// Example 1: Stream Event Types
+	// 示例 1：先把可用的事件类型常量列出来。
 	fmt.Println("--- Example 1: Stream Event Types ---")
 	fmt.Println("Available stream event type constants:")
 	showStreamEventTypes()
 
-	// Example 2: Basic Partial Streaming
+	// 示例 2：展示最基础的部分流式接收。
 	fmt.Println()
 	fmt.Println("--- Example 2: Basic Partial Streaming ---")
 	fmt.Println("Enabling partial streaming to receive real-time updates...")
 	runPartialStreamingExample()
 
-	// Example 3: Typing Indicator Pattern
+	// 示例 3：把流事件进一步组合成“正在输入”指示器。
 	fmt.Println()
 	fmt.Println("--- Example 3: Typing Indicator Pattern ---")
 	fmt.Println("Building a typing indicator with stream events...")
@@ -59,7 +62,9 @@ func main() {
 	fmt.Println("Partial streaming example completed!")
 }
 
-// showStreamEventTypes displays all available stream event type constants
+// showStreamEventTypes displays all available stream event type constants.
+//
+// showStreamEventTypes 输出所有可用的流事件类型常量。
 func showStreamEventTypes() {
 	fmt.Printf("  ContentBlockStart: %q\n", claudecode.StreamEventTypeContentBlockStart)
 	fmt.Printf("  ContentBlockDelta: %q\n", claudecode.StreamEventTypeContentBlockDelta)
@@ -69,7 +74,9 @@ func showStreamEventTypes() {
 	fmt.Printf("  MessageStop:       %q\n", claudecode.StreamEventTypeMessageStop)
 }
 
-// runPartialStreamingExample demonstrates receiving StreamEvent messages
+// runPartialStreamingExample demonstrates receiving StreamEvent messages.
+//
+// runPartialStreamingExample 演示如何消费 StreamEvent 并拼接增量文本。
 func runPartialStreamingExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -79,7 +86,7 @@ func runPartialStreamingExample() {
 	var textBuffer string
 
 	err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
-		// Ask for a short response to see streaming in action
+		// 提问尽量简短，这样更容易看清楚每个事件的到达顺序。
 		if err := client.Query(ctx, "Count from 1 to 5, putting each number on its own line."); err != nil {
 			return err
 		}
@@ -104,11 +111,11 @@ func runPartialStreamingExample() {
 
 					case claudecode.StreamEventTypeContentBlockDelta:
 						deltaCount++
-						// Extract delta text from the event
+						// 从 delta 事件里提取文本增量，并手动累计。
 						if delta, ok := msg.Event["delta"].(map[string]any); ok {
 							if text, ok := delta["text"].(string); ok {
 								textBuffer += text
-								// Show each delta as it arrives
+								// 每次增量到达就立即输出，模拟实时渲染。
 								fmt.Printf("[delta %d] %q\n", deltaCount, text)
 							}
 						}
@@ -127,7 +134,7 @@ func runPartialStreamingExample() {
 					}
 
 				case *claudecode.AssistantMessage:
-					// With partial streaming, we also get the full message
+					// 即便开启部分流式，最终仍会收到一条完整的 AssistantMessage。
 					for _, block := range msg.Content {
 						if textBlock, ok := block.(*claudecode.TextBlock); ok {
 							fmt.Printf("\nFull message: %s\n", textBlock.Text)
@@ -173,7 +180,9 @@ func runPartialStreamingExample() {
 	fmt.Printf("  Accumulated text length: %d chars\n", len(textBuffer))
 }
 
-// demonstrateTypingIndicator shows how to build a typing indicator
+// demonstrateTypingIndicator shows how to build a typing indicator.
+//
+// demonstrateTypingIndicator 演示如何基于 StreamEvent 搭一个简易“输入中”效果。
 func demonstrateTypingIndicator() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -210,7 +219,7 @@ func demonstrateTypingIndicator() {
 						}
 
 					case claudecode.StreamEventTypeContentBlockDelta:
-						// Show typing indicator dots
+						// 每收到一定数量的增量，就补一个点，模拟输入动画。
 						charCount++
 						if charCount%5 == 0 {
 							fmt.Print(".")

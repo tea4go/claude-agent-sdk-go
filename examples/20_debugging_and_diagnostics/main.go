@@ -20,6 +20,9 @@
 // - GetStreamIssues: Get validation issues from stream
 //
 // Run: go run main.go
+//
+// Package main 演示调试与诊断能力，包括环境变量注入、调试输出、stderr 回调
+// 以及连接与流状态的诊断方法。
 package main
 
 import (
@@ -38,24 +41,24 @@ func main() {
 	fmt.Println("=====================================================")
 	fmt.Println()
 
-	// Example 1: Environment Variables
+	// 示例 1：给 CLI 子进程注入环境变量。
 	fmt.Println("--- Example 1: Environment Variables ---")
 	fmt.Println("Setting custom environment variables for subprocess...")
 	demonstrateEnvironmentVariables()
 
-	// Example 2: Debug Output Configuration
+	// 示例 2：配置不同的调试输出去向。
 	fmt.Println()
 	fmt.Println("--- Example 2: Debug Output Configuration ---")
 	fmt.Println("Configuring debug output destinations...")
 	demonstrateDebugOutput()
 
-	// Example 3: Stderr Callback
+	// 示例 3：注册 stderr 回调做实时监控。
 	fmt.Println()
 	fmt.Println("--- Example 3: Stderr Callback ---")
 	fmt.Println("Setting up stderr monitoring callback...")
 	demonstrateStderrCallback()
 
-	// Example 4: Server Diagnostics
+	// 示例 4：调用诊断接口查看连接和流状态。
 	fmt.Println()
 	fmt.Println("--- Example 4: Server Diagnostics ---")
 	fmt.Println("Using diagnostics methods for health monitoring...")
@@ -65,9 +68,11 @@ func main() {
 	fmt.Println("Debugging and diagnostics example completed!")
 }
 
-// demonstrateEnvironmentVariables shows WithEnv and WithEnvVar
+// demonstrateEnvironmentVariables shows WithEnv and WithEnvVar.
+//
+// demonstrateEnvironmentVariables 演示批量和单个环境变量的配置方式。
 func demonstrateEnvironmentVariables() {
-	// Set multiple environment variables at once
+	// 先演示批量注入环境变量。
 	envMap := map[string]string{
 		"MY_API_KEY":     "secret-key-12345",
 		"DEBUG":          "true",
@@ -77,7 +82,7 @@ func demonstrateEnvironmentVariables() {
 
 	fmt.Println("Using WithEnv for multiple variables:")
 	for k, v := range envMap {
-		// Mask sensitive values in output
+		// 输出示例时把敏感值打码，避免误导真实使用场景。
 		displayValue := v
 		if k == "MY_API_KEY" {
 			displayValue = "***masked***"
@@ -91,7 +96,7 @@ func demonstrateEnvironmentVariables() {
 	fmt.Println("Client created with environment variables")
 	fmt.Println()
 
-	// Set individual environment variable
+	// 再演示单独设置一个环境变量的便捷写法。
 	fmt.Println("Using WithEnvVar for single variable:")
 	fmt.Println("  SINGLE_VAR=single_value")
 
@@ -104,9 +109,11 @@ func demonstrateEnvironmentVariables() {
 	_ = client2
 }
 
-// demonstrateDebugOutput shows debug output configuration options
+// demonstrateDebugOutput shows debug output configuration options.
+//
+// demonstrateDebugOutput 演示调试输出的几种常见落点。
 func demonstrateDebugOutput() {
-	// Option 1: Debug to custom writer (buffer for capture)
+	// 方案 1：写入自定义 buffer，适合测试和程序内捕获。
 	fmt.Println("Option 1: WithDebugWriter - capture to buffer")
 	var debugBuffer bytes.Buffer
 	client1 := claudecode.NewClient(
@@ -117,7 +124,7 @@ func demonstrateDebugOutput() {
 	_ = client1
 	fmt.Println()
 
-	// Option 2: Debug to stderr
+	// 方案 2：直接写到 stderr，适合本地调试。
 	fmt.Println("Option 2: WithDebugStderr - output to stderr")
 	client2 := claudecode.NewClient(
 		claudecode.WithDebugStderr(),
@@ -126,7 +133,7 @@ func demonstrateDebugOutput() {
 	_ = client2
 	fmt.Println()
 
-	// Option 3: Debug disabled
+	// 方案 3：显式关闭调试输出。
 	fmt.Println("Option 3: WithDebugDisabled - no debug output")
 	client3 := claudecode.NewClient(
 		claudecode.WithDebugDisabled(),
@@ -135,19 +142,21 @@ func demonstrateDebugOutput() {
 	_ = client3
 	fmt.Println()
 
-	// Option 4: Debug to file
+	// 方案 4：输出到文件，适合生产问题排查。
 	fmt.Println("Option 4: WithDebugWriter - output to file")
 	fmt.Println("  Example: claudecode.WithDebugWriter(logFile)")
 	fmt.Println("  Useful for production logging and post-mortem analysis")
 }
 
-// demonstrateStderrCallback shows real-time stderr monitoring
+// demonstrateStderrCallback shows real-time stderr monitoring.
+//
+// demonstrateStderrCallback 演示如何实时接收 CLI 的 stderr 输出。
 func demonstrateStderrCallback() {
-	// Thread-safe stderr log
+	// 回调可能并发触发，因此共享日志切片需要锁保护。
 	var stderrLines []string
 	var mu sync.Mutex
 
-	// Create callback that captures stderr lines
+	// 这个回调既保存日志，也即时打印摘要。
 	stderrCallback := func(line string) {
 		mu.Lock()
 		stderrLines = append(stderrLines, line)
@@ -171,7 +180,9 @@ func demonstrateStderrCallback() {
 	_ = client
 }
 
-// demonstrateServerDiagnostics shows GetServerInfo and GetStreamStats
+// demonstrateServerDiagnostics shows GetServerInfo and GetStreamStats.
+//
+// demonstrateServerDiagnostics 演示连接诊断、流统计和流问题检查。
 func demonstrateServerDiagnostics() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -179,7 +190,7 @@ func demonstrateServerDiagnostics() {
 	fmt.Println("Connecting to demonstrate diagnostics methods...")
 
 	err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
-		// GetServerInfo - connection status
+		// 先看连接层状态，确认当前 transport 是否正常建立。
 		fmt.Println()
 		fmt.Println("GetServerInfo() - Connection status:")
 		info, err := client.GetServerInfo(ctx)
@@ -191,12 +202,12 @@ func demonstrateServerDiagnostics() {
 			}
 		}
 
-		// Send a query to generate some stats
+		// 发一轮最小查询，给流统计和问题检测制造样本数据。
 		if err := client.Query(ctx, "What is 2+2? Answer in one word."); err != nil {
 			return err
 		}
 
-		// Drain the response
+		// 读完这一轮响应，随后再查看统计结果。
 		msgChan := client.ReceiveMessages(ctx)
 		for {
 			select {
@@ -206,9 +217,8 @@ func demonstrateServerDiagnostics() {
 				}
 				switch msg := message.(type) {
 				case *claudecode.AssistantMessage:
-					// HasError checks the top-level error field on the assistant message.
-					// This is distinct from ResultMessage.IsError - it signals a rate limit,
-					// billing issue, or server error on the message itself.
+					// AssistantMessage 上的 error 是消息级错误信息，
+					// 与 ResultMessage.IsError 代表的整体结果错误不是一回事。
 					if msg.HasError() {
 						errType := msg.GetError()
 						if msg.IsRateLimited() {
@@ -237,13 +247,13 @@ func demonstrateServerDiagnostics() {
 		}
 
 	statsSection:
-		// GetStreamStats - streaming statistics
+		// 再看流统计，了解工具请求、响应等整体情况。
 		fmt.Println()
 		fmt.Println("GetStreamStats() - Streaming statistics:")
 		stats := client.GetStreamStats()
 		fmt.Printf("  Stats: %+v\n", stats)
 
-		// GetStreamIssues - validation issues
+		// 最后看流校验问题，确认是否存在缺失或异常消息。
 		fmt.Println()
 		fmt.Println("GetStreamIssues() - Validation issues:")
 		issues := client.GetStreamIssues()
@@ -270,13 +280,15 @@ func demonstrateServerDiagnostics() {
 			fmt.Printf("Connection failed: %v\n", connErr)
 			return
 		}
-		// Don't fail the example if CLI is not available
+		// 这是诊断示例，没有 CLI 时给出提示即可，不强行报错退出。
 		fmt.Printf("Note: %v\n", err)
 		fmt.Println("(Diagnostics methods require an active connection)")
 	}
 }
 
-// truncate shortens a string to maxLen characters
+// truncate shortens a string to maxLen characters.
+//
+// truncate 截断过长日志，避免示例输出过宽。
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -284,9 +296,11 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// Demonstrate debug to file pattern (not executed, just shown)
+// Demonstrate debug to file pattern (not executed, just shown).
+//
+// init 用一个不会执行的闭包演示“调试输出写文件”的典型配置方式。
 func init() {
-	// This pattern is useful for production environments
+	// 这种模式适合生产环境留存调试日志。
 	_ = func() {
 		logFile, err := os.OpenFile("claude-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
@@ -297,7 +311,7 @@ func init() {
 		_ = claudecode.NewClient(
 			claudecode.WithDebugWriter(logFile),
 			claudecode.WithStderrCallback(func(line string) {
-				// Also write stderr to the log file
+				// 额外把 stderr 也写入日志文件，便于统一排查。
 				fmt.Fprintln(logFile, "[STDERR]", line)
 			}),
 		)

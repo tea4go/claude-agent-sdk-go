@@ -1,5 +1,8 @@
 // Package main demonstrates Client API with MCP time tools using WithClient for multi-turn time workflow.
 // Also demonstrates GetMcpStatus() to inspect MCP server connection state after connecting.
+//
+// Package main 演示结合 MCP 时间工具的 Client API 多轮工作流，
+// 同时展示连接建立后如何通过 GetMcpStatus() 检查 MCP 服务状态。
 package main
 
 import (
@@ -17,13 +20,13 @@ func main() {
 
 	ctx := context.Background()
 
-	// Two-step time workflow using WithClient
+	// 设计两步连续问题，验证第二步能否复用第一步的上下文结果。
 	steps := []string{
 		"What time is it in London?",
 		"Convert that time to Tokyo timezone",
 	}
 
-	// Configure MCP time server using uvx
+	// 配置 MCP 时间服务器，供查询当前时间和时区转换使用。
 	servers := map[string]claudecode.McpServerConfig{
 		"time": &claudecode.McpStdioServerConfig{
 			Type:    claudecode.McpServerTypeStdio,
@@ -32,12 +35,11 @@ func main() {
 		},
 	}
 
-	// WithClient maintains context between time operations automatically
+	// WithClient 自动维持上下文，适合这种多步时间处理流程。
 	err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 		fmt.Println("\nConnected!")
 
-		// GetMcpStatus shows the connection state of all configured MCP servers.
-		// Call this after connecting to verify servers are ready before sending queries.
+		// 先检查 MCP 服务器是否就绪，避免把后续失败混淆成业务问题。
 		fmt.Println("\n--- MCP Server Status ---")
 		status, err := client.GetMcpStatus(ctx)
 		if err != nil {
@@ -97,6 +99,9 @@ func main() {
 	}
 }
 
+// streamTimeResponse reads one round of time-related responses and tool output.
+//
+// streamTimeResponse 读取当前轮与时间工具相关的响应内容。
 func streamTimeResponse(ctx context.Context, client claudecode.Client) error {
 	fmt.Println("\nResponse:")
 

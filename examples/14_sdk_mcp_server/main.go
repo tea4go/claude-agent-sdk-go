@@ -16,6 +16,9 @@
 //   - Tool naming: mcp__<server_name>__<tool_name> format for AllowedTools
 //
 // Run: go run main.go
+//
+// Package main 演示进程内 SDK MCP Server，说明如何直接在 Go 进程里定义工具、
+// 组装服务器，并通过标准 MCP 接口暴露给 Claude 使用。
 package main
 
 import (
@@ -33,20 +36,20 @@ func main() {
 	fmt.Println("====================================================")
 	fmt.Println()
 
-	// Example 1: Calculator with add/sqrt tools
+	// 示例 1：构造一个最简单的计算器工具集。
 	fmt.Println("--- Example 1: Calculator Server ---")
 	fmt.Println("Tools: add (adds two numbers), sqrt (square root)")
 	fmt.Println()
 	runCalculatorExample()
 
-	// Example 2: Text processing tools
+	// 示例 2：演示字符串处理类工具。
 	fmt.Println()
 	fmt.Println("--- Example 2: Text Processing Server ---")
 	fmt.Println("Tools: uppercase, reverse, word_count")
 	fmt.Println()
 	runTextProcessorExample()
 
-	// Example 3: Tool with MCP-spec annotations (read-only, idempotent, closed-world)
+	// 示例 3：演示如何给工具补充 MCP 规范里的行为提示。
 	fmt.Println()
 	fmt.Println("--- Example 3: Annotated Tool ---")
 	fmt.Println("Tools: circle_area (read-only, idempotent, closed-world hints)")
@@ -61,14 +64,18 @@ func main() {
 // ToolAnnotations (Title *string, ReadOnlyHint *bool, etc.). A nil pointer
 // means "field not set" and is omitted from the wire format; *false vs nil
 // is a meaningful distinction for the CLI.
+//
+// ptrTo 返回值对应的指针，便于构造 ToolAnnotations 中的大量可选字段。
 func ptrTo[T any](v T) *T { return &v }
 
-// runCalculatorExample demonstrates a calculator with math tools
+// runCalculatorExample demonstrates a calculator with math tools.
+//
+// runCalculatorExample 演示如何把一组数学函数打包成进程内 MCP 工具。
 func runCalculatorExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Create the "add" tool - adds two numbers
+	// add：最基础的双数求和工具。
 	addTool := claudecode.NewTool(
 		"add",
 		"Add two numbers together and return the sum",
@@ -99,7 +106,7 @@ func runCalculatorExample() {
 		},
 	)
 
-	// Create the "sqrt" tool - calculates square root
+	// sqrt：附带一个简单的负数校验，演示工具错误返回。
 	sqrtTool := claudecode.NewTool(
 		"sqrt",
 		"Calculate the square root of a number",
@@ -134,12 +141,12 @@ func runCalculatorExample() {
 		},
 	)
 
-	// Create the SDK MCP server with both tools
+	// 把多个工具组装成一个进程内 MCP 服务器实例。
 	calculator := claudecode.CreateSDKMcpServer("calculator", "1.0.0", addTool, sqrtTool)
 
 	fmt.Println("Asking Claude to perform calculations...")
 
-	// Use the calculator server with the client
+	// 通过 WithSdkMcpServer 把该服务器挂到客户端配置里。
 	err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 		if err := client.Query(ctx, "Using the calculator tools, calculate 15 + 27, then find the square root of 144. Show the results."); err != nil {
 			return err
@@ -165,12 +172,14 @@ func runCalculatorExample() {
 	}
 }
 
-// runTextProcessorExample demonstrates text processing tools
+// runTextProcessorExample demonstrates text processing tools.
+//
+// runTextProcessorExample 演示字符串处理工具的定义方式。
 func runTextProcessorExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Create "uppercase" tool
+	// uppercase：把输入文本转成大写。
 	uppercaseTool := claudecode.NewTool(
 		"uppercase",
 		"Convert text to uppercase",
@@ -196,7 +205,7 @@ func runTextProcessorExample() {
 		},
 	)
 
-	// Create "reverse" tool
+	// reverse：对 rune 切片原地翻转，兼容 Unicode 字符。
 	reverseTool := claudecode.NewTool(
 		"reverse",
 		"Reverse a string",
@@ -226,7 +235,7 @@ func runTextProcessorExample() {
 		},
 	)
 
-	// Create "word_count" tool
+	// word_count：演示一个简单统计型工具。
 	wordCountTool := claudecode.NewTool(
 		"word_count",
 		"Count the number of words in text",
@@ -253,7 +262,7 @@ func runTextProcessorExample() {
 		},
 	)
 
-	// Create the text processor server
+	// 把三个文本工具组合成同一个 MCP 服务。
 	textProcessor := claudecode.CreateSDKMcpServer(
 		"textproc", "1.0.0",
 		uppercaseTool, reverseTool, wordCountTool,
@@ -290,13 +299,14 @@ func runTextProcessorExample() {
 // a tool. The annotations are advisory hints sent to the CLI in the JSONRPC
 // tools/list response under the "annotations" key. The key is omitted entirely
 // when a tool has no annotations (matching Python's exclude_none semantics).
+//
+// runAnnotatedToolExample 演示给工具附加只读、幂等等行为提示。
 func runAnnotatedToolExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// circle_area: a pure computation. It reads no state, performs no side
-	// effects, and reaching the same result for the same input - that maps
-	// to readOnly + idempotent + closed-world (not openWorld).
+	// circle_area 是纯计算：不读外部状态、没有副作用、相同输入必得相同输出，
+	// 因此适合标记为只读、幂等、闭世界（非 open world）。
 	circleAreaTool := claudecode.NewTool(
 		"circle_area",
 		"Compute the area of a circle given its radius",
@@ -365,7 +375,9 @@ func runAnnotatedToolExample() {
 	}
 }
 
-// streamResponse reads and displays messages from the client
+// streamResponse reads and displays messages from the client.
+//
+// streamResponse 读取客户端消息，并把回答压缩成适合示例展示的摘要。
 func streamResponse(ctx context.Context, client claudecode.Client) error {
 	msgChan := client.ReceiveMessages(ctx)
 
@@ -380,7 +392,7 @@ func streamResponse(ctx context.Context, client claudecode.Client) error {
 			case *claudecode.AssistantMessage:
 				for _, block := range msg.Content {
 					if textBlock, ok := block.(*claudecode.TextBlock); ok {
-						// Show first 200 chars of response
+						// 只展示前 200 个字符，避免示例输出过长。
 						text := textBlock.Text
 						if len(text) > 200 {
 							text = text[:200] + "..."

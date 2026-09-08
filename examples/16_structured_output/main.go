@@ -15,6 +15,9 @@
 // - ResultMessage.StructuredOutput: Access the parsed output
 //
 // Run: go run main.go
+//
+// Package main 演示结构化输出能力，说明如何借助 JSON Schema
+// 把自然语言结果约束成可直接消费的结构化数据。
 package main
 
 import (
@@ -31,18 +34,18 @@ func main() {
 	fmt.Println("=============================================")
 	fmt.Println()
 
-	// Example 1: Extract Tasks from Natural Language
+	// 示例 1：从自然语言里提取任务列表和优先级。
 	fmt.Println("--- Example 1: Task Extraction ---")
 	fmt.Println("Extracting structured task data from natural language...")
 	runTaskExtractionExample()
 
-	// Example 2: Extract Contact Information
+	// 示例 2：从文本里提取联系人信息。
 	fmt.Println()
 	fmt.Println("--- Example 2: Contact Information Extraction ---")
 	fmt.Println("Extracting structured contact data...")
 	runContactExtractionExample()
 
-	// Example 3: Using OutputFormatJSONSchema directly
+	// 示例 3：直接构造 OutputFormat，而不是走便捷函数。
 	fmt.Println()
 	fmt.Println("--- Example 3: Explicit OutputFormat ---")
 	fmt.Println("Using WithOutputFormat for explicit control...")
@@ -52,18 +55,22 @@ func main() {
 	fmt.Println("Structured output example completed!")
 }
 
-// TaskList represents a list of tasks extracted from text
+// TaskList represents a list of tasks extracted from text.
+//
+// TaskList 表示从自然语言中抽取出来的任务列表。
 type TaskList struct {
 	Tasks    []string `json:"tasks"`
 	Priority string   `json:"priority"`
 }
 
-// runTaskExtractionExample demonstrates extracting tasks from natural language
+// runTaskExtractionExample demonstrates extracting tasks from natural language.
+//
+// runTaskExtractionExample 演示如何用 JSON Schema 约束任务抽取结果。
 func runTaskExtractionExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Define JSON schema for task extraction
+	// 先定义目标 schema，让模型必须按这个结构返回。
 	taskSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -93,7 +100,7 @@ func runTaskExtractionExample() {
 			return err
 		}
 
-		// Stream and capture structured output
+		// 结构化结果最终挂在 ResultMessage.StructuredOutput 上。
 		msgChan := client.ReceiveMessages(ctx)
 		for {
 			select {
@@ -109,7 +116,7 @@ func runTaskExtractionExample() {
 						}
 						return fmt.Errorf("error: unknown error")
 					}
-					// Capture the structured output
+					// 保存结构化输出，离开会话后统一展示。
 					structuredOutput = msg.StructuredOutput
 					return nil
 				}
@@ -136,13 +143,13 @@ func runTaskExtractionExample() {
 		return
 	}
 
-	// Display the structured output
+	// 统一展示结构化输出，再按 map 方式读取关键字段。
 	if structuredOutput != nil {
 		fmt.Println("Structured Output:")
 		jsonBytes, _ := json.MarshalIndent(structuredOutput, "  ", "  ")
 		fmt.Printf("  %s\n", string(jsonBytes))
 
-		// Type assertion to access fields
+		// 这里演示最直接的字段访问方式：把结果断言成 map。
 		if output, ok := structuredOutput.(map[string]any); ok {
 			if tasks, ok := output["tasks"].([]any); ok {
 				fmt.Printf("\nExtracted %d tasks:\n", len(tasks))
@@ -159,19 +166,23 @@ func runTaskExtractionExample() {
 	}
 }
 
-// Contact represents contact information
+// Contact represents contact information.
+//
+// Contact 表示联系人信息结构。
 type Contact struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Phone string `json:"phone,omitempty"`
 }
 
-// runContactExtractionExample demonstrates extracting contact information
+// runContactExtractionExample demonstrates extracting contact information.
+//
+// runContactExtractionExample 演示如何提取联系人信息。
 func runContactExtractionExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Define JSON schema for contact extraction
+	// 联系人 schema 比任务示例更接近真实业务实体。
 	contactSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -253,12 +264,14 @@ func runContactExtractionExample() {
 	}
 }
 
-// runExplicitOutputFormatExample demonstrates using WithOutputFormat directly
+// runExplicitOutputFormatExample demonstrates using WithOutputFormat directly.
+//
+// runExplicitOutputFormatExample 演示如何直接构造 OutputFormat 并传给客户端。
 func runExplicitOutputFormatExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Create schema for a simple response
+	// 定义一个更简单的摘要 schema。
 	summarySchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -274,7 +287,7 @@ func runExplicitOutputFormatExample() {
 		"required": []string{"summary", "word_count"},
 	}
 
-	// Create OutputFormat explicitly
+	// 直接把 schema 包装成 OutputFormat，对比 WithJSONSchema 的便捷写法。
 	outputFormat := claudecode.OutputFormatJSONSchema(summarySchema)
 
 	fmt.Printf("OutputFormat Type: %s\n", outputFormat.Type)

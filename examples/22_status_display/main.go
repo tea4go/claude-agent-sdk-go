@@ -13,6 +13,8 @@
 //   Using tool Glob... (1m 30s • 31.2k in • 2.1k out • thinking)
 //
 // Run with: go run examples/22_status_display/main.go
+//
+// Package main 演示如何基于消息流自行实现一个接近 Claude CLI 底部状态栏的实时状态展示。
 
 package main
 
@@ -27,26 +29,30 @@ import (
 )
 
 // statusTracker accumulates state for the CLI-style status display.
+//
+// statusTracker 聚合构建状态栏所需的运行时信息。
 type statusTracker struct {
-	startTime       time.Time
-	inputTokens     int
-	outputTokens    int
-	cacheReadTokens int
+	startTime        time.Time
+	inputTokens      int
+	outputTokens     int
+	cacheReadTokens  int
 	cacheWriteTokens int
-	costUSD         float64
-	currentActivity string
-	isRateLimited   bool
-	rateLimitResets time.Time
-	errors          []string
-	model           string
-	isThinking      bool
-	lastLineLen     int // for clearing previous output
-	done            bool
-	finalDurationMs int
-	finalAPIDurMs   int
+	costUSD          float64
+	currentActivity  string
+	isRateLimited    bool
+	rateLimitResets  time.Time
+	errors           []string
+	model            string
+	isThinking       bool
+	lastLineLen      int // 记录上一行长度，便于原地清屏重绘。
+	done             bool
+	finalDurationMs  int
+	finalAPIDurMs    int
 }
 
 // formatTokenK formats a token count as X.Xk (matches CLI style).
+//
+// formatTokenK 把 token 数格式化成更接近 CLI 风格的 k 单位表示。
 func formatTokenK(n int) string {
 	if n < 1000 {
 		return fmt.Sprintf("%d", n)
@@ -59,6 +65,8 @@ func formatTokenK(n int) string {
 }
 
 // formatElapsed formats elapsed time from startTime (matches CLI style).
+//
+// formatElapsed 根据启动时间计算已耗时长。
 func (s *statusTracker) formatElapsed() string {
 	elapsed := time.Since(s.startTime)
 	sec := int(elapsed.Seconds())
@@ -72,17 +80,19 @@ func (s *statusTracker) formatElapsed() string {
 
 // render outputs a single status line, overwriting the previous one.
 // Uses ANSI escape codes to clear the previous line for in-place updates.
+//
+// render 在终端中原地刷新单行状态，模拟 CLI 状态栏效果。
 func (s *statusTracker) render() {
 	if s.done {
-		// Final line: just print normally, no overwriting needed
+		// 收尾阶段直接正常打印，不再原地覆盖。
 		fmt.Println(s.formatStatusLine())
 		return
 	}
 
 	line := s.formatStatusLine()
-	// Clear previous line and write new one in-place
+	// 清掉上一帧，再在同一行渲染最新状态。
 	if s.lastLineLen > 0 {
-		// Move cursor to start of line, clear it, then write new content
+		// 光标回到行首并清空整行，实现原位更新。
 		fmt.Printf("\r\033[K%s", line)
 	} else {
 		fmt.Print(line)
@@ -91,21 +101,24 @@ func (s *statusTracker) render() {
 }
 
 // formatStatusLine builds a CLI-style status string like:
-//   Processing. (1m 23s • 31.2k in • 2.1k out)
+//
+//	Processing. (1m 23s • 31.2k in • 2.1k out)
+//
+// formatStatusLine 组装类似 CLI 的状态文本。
 func (s *statusTracker) formatStatusLine() string {
 	var parts []string
 
-	// 1. Activity description (with trailing period, matching CLI style)
+	// 1. 先生成活动描述，带句号，尽量贴近 CLI 文案风格。
 	activity := activityLabel(s.currentActivity, s.isRateLimited, s.isThinking)
 	parts = append(parts, activity)
 
-	// 2. Parenthesized stats
+	// 2. 再拼接括号中的统计数据。
 	var stats []string
 
-	// Duration: always show elapsed time from local timer
+	// 时长始终以本地计时器为准，更新更实时。
 	stats = append(stats, s.formatElapsed())
 
-	// Token counts
+	// token 统计：输入、输出以及缓存命中信息。
 	if s.inputTokens > 0 || s.outputTokens > 0 {
 		tokenStr := fmt.Sprintf("%s in", formatTokenK(s.inputTokens))
 		if s.outputTokens > 0 {
@@ -114,17 +127,17 @@ func (s *statusTracker) formatStatusLine() string {
 		stats = append(stats, tokenStr)
 	}
 
-	// Cache tokens (when present)
+	// 有缓存读取 token 时也展示出来。
 	if s.cacheReadTokens > 0 {
 		stats = append(stats, fmt.Sprintf("%s cache read", formatTokenK(s.cacheReadTokens)))
 	}
 
-	// Cost
+	// 成本信息仅在可用时显示。
 	if s.costUSD > 0 {
 		stats = append(stats, fmt.Sprintf("$%.2f", s.costUSD))
 	}
 
-	// Rate limit warning
+	// 被限流时插入醒目的警告状态。
 	if s.isRateLimited {
 		warning := "rate limited"
 		if !s.rateLimitResets.IsZero() {
@@ -133,12 +146,12 @@ func (s *statusTracker) formatStatusLine() string {
 		stats = append(stats, warning)
 	}
 
-	// Thinking indicator
+	// 思考态单独打标，便于区分“正在输出”和“正在思考”。
 	if s.isThinking {
 		stats = append(stats, "thinking")
 	}
 
-	// Error indicator
+	// 累积到的错误统一拼到尾部。
 	if len(s.errors) > 0 {
 		stats = append(stats, fmt.Sprintf("error: %s", strings.Join(s.errors, "; ")))
 	}
@@ -151,6 +164,8 @@ func (s *statusTracker) formatStatusLine() string {
 }
 
 // activityLabel converts internal activity state to a CLI-style label.
+//
+// activityLabel 把内部状态映射成更接近 CLI 的可读标签。
 func activityLabel(activity string, rateLimited bool, thinking bool) string {
 	if rateLimited {
 		return "Retrying..."
@@ -175,7 +190,7 @@ func activityLabel(activity string, rateLimited bool, thinking bool) string {
 	case "":
 		return "Waiting."
 	default:
-		// Tool-specific activity (e.g. "Glob", "Read")
+		// 工具态显示为 “Using xxx...”，更贴近官方 CLI 表现。
 		if strings.HasPrefix(activity, "tool:") {
 			toolName := strings.TrimPrefix(activity, "tool:")
 			return fmt.Sprintf("Using %s...", toolName)
@@ -235,7 +250,7 @@ func main() {
 				tracker.currentActivity = "generating"
 			}
 
-			// Accumulate per-turn token usage
+			// AssistantMessage 上的 usage 是按轮的，先做增量累计。
 			if m.HasUsage() {
 				tracker.inputTokens += m.Usage.InputTokens
 				tracker.outputTokens += m.Usage.OutputTokens
@@ -256,15 +271,14 @@ func main() {
 			tracker.currentActivity = "tool_result"
 
 		case *claudecode.SystemMessage:
-			// Map system subtypes to human-readable activities
+			// system 消息主要用于更新可视状态，不直接展示正文。
 			switch m.Subtype {
 			case "init":
 				tracker.currentActivity = "init"
 			case "api_retry":
 				tracker.isRateLimited = true
 			default:
-				// Other system subtypes (hook_started, hook_response, etc.)
-				// are internal protocol messages - don't change the visible activity
+				// 其他 subtype 多为内部协议细节，不影响前台状态文案。
 			}
 
 		case *claudecode.ResultMessage:
@@ -277,7 +291,7 @@ func main() {
 				tracker.costUSD = *m.TotalCostUSD
 			}
 
-			// ResultMessage.Usage is the authoritative conversation-level total
+			// ResultMessage.Usage 才是整段对话级别的最终权威统计。
 			if m.HasUsage() {
 				tracker.inputTokens = m.Usage.InputTokens
 				tracker.outputTokens = m.Usage.OutputTokens
@@ -332,13 +346,13 @@ func main() {
 			}
 
 		case *claudecode.RawMessage:
-			// Forward-compatible: silently handle unknown types
+			// 保持前向兼容：未知消息类型先静默跳过。
 		}
 
 		tracker.render()
 	}
 
-	// Clear the in-place status line before printing the final summary
+	// 打印最终摘要前先清掉原地刷新的那一行。
 	if tracker.lastLineLen > 0 {
 		fmt.Printf("\r\033[K")
 	}
@@ -352,6 +366,9 @@ func main() {
 	}
 }
 
+// formatDuration formats a millisecond duration into a readable short string.
+//
+// formatDuration 把毫秒时长格式化成便于终端展示的短字符串。
 func formatDuration(ms int) string {
 	if ms < 1000 {
 		return fmt.Sprintf("%dms", ms)

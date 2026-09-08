@@ -24,6 +24,8 @@
 // for handling these lifecycle events.
 //
 // Run: go run main.go
+//
+// Package main 演示 Hook 系统，覆盖工具执行前后、失败恢复、通知观察等生命周期事件。
 package main
 
 import (
@@ -39,6 +41,8 @@ import (
 )
 
 // exampleDir returns the directory containing this source file.
+//
+// exampleDir 返回当前示例源码所在目录。
 func exampleDir() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Dir(file)
@@ -49,34 +53,34 @@ func main() {
 	fmt.Println("======================================")
 	fmt.Println()
 
-	// Example 1: Basic tool logging with PreToolUse and PostToolUse hooks
+	// 示例 1：记录工具执行前后的 Hook 触发情况。
 	fmt.Println("--- Example 1: Tool Logging Hooks ---")
 	fmt.Println("Hook: Log all tool usage before and after execution")
 	fmt.Println()
 	runToolLoggingExample()
 
-	// Example 2: Blocking dangerous commands
+	// 示例 2：在执行前拦截危险命令。
 	fmt.Println()
 	fmt.Println("--- Example 2: Command Blocking Hook ---")
 	fmt.Println("Hook: Block dangerous bash commands before execution")
 	fmt.Println()
 	runBlockingExample()
 
-	// Example 3: Adding context to tool responses
+	// 示例 3：在工具执行后给 Claude 注入补充上下文。
 	fmt.Println()
 	fmt.Println("--- Example 3: Context Injection Hook ---")
 	fmt.Println("Hook: Add timing information after tool execution")
 	fmt.Println()
 	runContextInjectionExample()
 
-	// Example 4: Recovering from tool failures
+	// 示例 4：工具失败后注入恢复建议。
 	fmt.Println()
 	fmt.Println("--- Example 4: Tool Failure Recovery Hook ---")
 	fmt.Println("Hook: Inject recovery context when a Bash command fails")
 	fmt.Println()
 	runFailureRecoveryExample()
 
-	// Example 5: Observing CLI notifications
+	// 示例 5：观察 CLI 发出的通知事件。
 	fmt.Println()
 	fmt.Println("--- Example 5: Notification Hook ---")
 	fmt.Println("Hook: Observe CLI-emitted notifications via the generic WithHook API")
@@ -87,16 +91,18 @@ func main() {
 	fmt.Println("Hook system examples completed!")
 }
 
-// runToolLoggingExample demonstrates logging tool usage with hooks
+// runToolLoggingExample demonstrates logging tool usage with hooks.
+//
+// runToolLoggingExample 演示如何用 Hook 记录工具执行前后的日志。
 func runToolLoggingExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Thread-safe log storage
+	// Hook 可能并发触发，因此日志切片需要加锁保护。
 	var toolLog []ToolLogEntry
 	var logMu sync.Mutex
 
-	// PreToolUse hook - log before execution
+	// PreToolUse：在工具真正执行前记录一条日志。
 	preToolHook := claudecode.WithPreToolUseHook("", func(
 		_ context.Context,
 		input any,
@@ -124,7 +130,7 @@ func runToolLoggingExample() {
 		return claudecode.HookJSONOutput{}, nil
 	})
 
-	// PostToolUse hook - log after execution
+	// PostToolUse：在工具执行完成后再补一条结果日志。
 	postToolHook := claudecode.WithPostToolUseHook("", func(
 		_ context.Context,
 		input any,
@@ -174,7 +180,7 @@ func runToolLoggingExample() {
 		fmt.Printf("Error: %v\n", err)
 	}
 
-	// Print log summary
+	// 汇总打印 Hook 调用记录，方便验证前后钩子是否成对触发。
 	fmt.Println("\n--- Tool Log Summary ---")
 	logMu.Lock()
 	for i, entry := range toolLog {
@@ -185,15 +191,17 @@ func runToolLoggingExample() {
 	logMu.Unlock()
 }
 
-// runBlockingExample demonstrates blocking dangerous commands with PreToolUse hooks
+// runBlockingExample demonstrates blocking dangerous commands with PreToolUse hooks.
+//
+// runBlockingExample 演示在 PreToolUse 阶段拦截危险 Bash 命令。
 func runBlockingExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Dangerous command patterns to block
+	// 预设一组高风险命令片段，用于演示拦截逻辑。
 	dangerousPatterns := []string{"rm -rf", "sudo", "chmod 777", "> /dev/"}
 
-	// PreToolUse hook that blocks dangerous Bash commands
+	// 仅挂在 Bash 上，这样只会检查命令型工具输入。
 	blockingHook := claudecode.WithPreToolUseHook("Bash", func(
 		_ context.Context,
 		input any,
@@ -205,18 +213,18 @@ func runBlockingExample() {
 			return claudecode.HookJSONOutput{}, nil
 		}
 
-		// Extract command from tool input
+		// 从工具输入中取出实际命令文本。
 		command, ok := preInput.ToolInput["command"].(string)
 		if !ok {
 			return claudecode.HookJSONOutput{}, nil
 		}
 
-		// Check for dangerous patterns
+		// 命中危险模式就返回 block 决策，阻止 CLI 真正执行。
 		for _, pattern := range dangerousPatterns {
 			if strings.Contains(strings.ToLower(command), strings.ToLower(pattern)) {
 				fmt.Printf("  [BLOCK] Dangerous command detected: %q\n", truncate(command, 50))
 
-				// Block the command
+				// 通过 HookJSONOutput 显式告诉 CLI：这条命令要被阻止。
 				decision := "block"
 				reason := fmt.Sprintf("Command blocked: contains dangerous pattern '%s'", pattern)
 				return claudecode.HookJSONOutput{
@@ -253,16 +261,18 @@ func runBlockingExample() {
 	}
 }
 
-// runContextInjectionExample demonstrates adding context after tool execution
+// runContextInjectionExample demonstrates adding context after tool execution.
+//
+// runContextInjectionExample 演示如何在工具执行后，把额外上下文回灌给 Claude。
 func runContextInjectionExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Track tool execution timing
+	// 用 toolUseID 建立开始时间索引，统计每次工具调用耗时。
 	toolStartTimes := make(map[string]time.Time)
 	var timingMu sync.Mutex
 
-	// PreToolUse hook - record start time
+	// 前置 Hook 记录起始时间。
 	preHook := claudecode.WithPreToolUseHook("", func(
 		_ context.Context,
 		_ any,
@@ -280,7 +290,7 @@ func runContextInjectionExample() {
 		return claudecode.HookJSONOutput{}, nil
 	})
 
-	// PostToolUse hook - add timing context
+	// 后置 Hook 计算耗时，并把结果注入为附加上下文。
 	postHook := claudecode.WithPostToolUseHook("", func(
 		_ context.Context,
 		input any,
@@ -305,7 +315,7 @@ func runContextInjectionExample() {
 		context := fmt.Sprintf("Tool %s completed in %v", postInput.ToolName, duration)
 		fmt.Printf("  [TIMING] %s\n", context)
 
-		// Add timing context for Claude
+		// AdditionalContext 会在 Claude 下一轮继续可见，适合传递诊断信息。
 		return claudecode.HookJSONOutput{
 			HookSpecificOutput: claudecode.PostToolUseHookSpecificOutput{
 				HookEventName:     "PostToolUse",
@@ -347,12 +357,13 @@ func runContextInjectionExample() {
 // treated specially: the hook stays silent rather than encouraging a retry, since
 // Ctrl+C signals stop intent. A nil IsInterrupt means the CLI omitted the field
 // (Python NotRequired[bool] semantics) and must not be treated as an interrupt.
+//
+// runFailureRecoveryExample 演示工具失败后如何通过 Hook 向下一轮注入恢复提示。
 func runFailureRecoveryExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// PostToolUseFailure hook - inject recovery context when Bash fails.
-	// Registered via generic WithHook because no convenience helper exists for this event.
+	// PostToolUseFailure 目前没有专用便捷函数，因此通过通用 WithHook 注册。
 	failureHook := claudecode.WithHook(
 		claudecode.HookEventPostToolUseFailure,
 		"Bash",
@@ -390,13 +401,15 @@ func runFailureRecoveryExample() {
 // observes whatever the CLI decides to notify about during the session.
 //
 // Registered via generic WithHook because no convenience helper exists for this event.
+//
+// runNotificationExample 演示如何旁路观察 CLI 产生的通知消息。
 func runNotificationExample() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	notificationHook := claudecode.WithHook(
 		claudecode.HookEventNotification,
-		"", // matcher unused for non-tool events
+		"", // 非工具事件不会用到 matcher，这里传空即可。
 		notificationCallback,
 	)
 
@@ -425,6 +438,8 @@ func runNotificationExample() {
 
 // notificationCallback is the Notification handler for runNotificationExample.
 // Logs the notification fields with a nil-guard on the optional Title.
+//
+// notificationCallback 是通知事件处理函数，重点演示如何安全读取可选字段 Title。
 func notificationCallback(
 	_ context.Context,
 	input any,
@@ -448,6 +463,8 @@ func notificationCallback(
 
 // recoveryCallback is the PostToolUseFailure handler for runFailureRecoveryExample.
 // Skips context injection when IsInterrupt is true to respect user stop intent.
+//
+// recoveryCallback 在工具失败时注入恢复建议；若是用户主动中断，则保持静默。
 func recoveryCallback(
 	_ context.Context,
 	input any,
@@ -477,16 +494,22 @@ func recoveryCallback(
 }
 
 // ptrTo returns a pointer to the given value. Useful for *string fields like AdditionalContext.
+//
+// ptrTo 返回某个值的指针，便于构造 AdditionalContext 这类可选字段。
 func ptrTo[T any](v T) *T { return &v }
 
-// ToolLogEntry represents a logged tool usage event
+// ToolLogEntry represents a logged tool usage event.
+//
+// ToolLogEntry 表示一条工具调用日志记录。
 type ToolLogEntry struct {
 	Timestamp time.Time
 	Tool      string
-	Phase     string // "PRE" or "POST"
+	Phase     string // 标记发生在执行前还是执行后。
 }
 
-// streamResponse reads and displays messages from the client
+// streamResponse reads and displays messages from the client.
+//
+// streamResponse 读取客户端消息，并把结果压缩为简短可读的示例输出。
 func streamResponse(ctx context.Context, client claudecode.Client) error {
 	msgChan := client.ReceiveMessages(ctx)
 
@@ -523,7 +546,9 @@ func streamResponse(ctx context.Context, client claudecode.Client) error {
 	}
 }
 
-// truncate shortens a string to maxLen characters
+// truncate shortens a string to maxLen characters.
+//
+// truncate 把过长字符串截断到指定长度，避免示例输出过宽。
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

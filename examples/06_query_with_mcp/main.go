@@ -1,4 +1,6 @@
 // Package main demonstrates Query API with MCP tools (timezone operations).
+//
+// Package main 演示结合 MCP 工具执行时区相关查询的 Query API 用法。
 package main
 
 import (
@@ -21,7 +23,7 @@ func main() {
 	fmt.Printf("\nQuery: %s\n", query)
 	fmt.Println("Tools: MCP time server")
 
-	// Configure MCP time server using uvx
+	// 通过 uvx 启动 MCP 时间服务器，让模型能调用外部时间工具。
 	servers := map[string]claudecode.McpServerConfig{
 		"time": &claudecode.McpStdioServerConfig{
 			Type:    claudecode.McpServerTypeStdio,
@@ -30,7 +32,7 @@ func main() {
 		},
 	}
 
-	// Query with MCP time tools enabled
+	// 为本次查询显式挂上 MCP 服务器和允许的工具列表。
 	iterator, err := claudecode.Query(ctx, query,
 		claudecode.WithMcpServers(servers),
 		claudecode.WithAllowedTools("mcp__time__get_current_time"),
@@ -66,6 +68,7 @@ func main() {
 			break
 		}
 
+		// 助手消息输出自然语言结果；用户消息中则可能带有工具回传内容。
 		switch msg := message.(type) {
 		case *claudecode.AssistantMessage:
 			for _, block := range msg.Content {

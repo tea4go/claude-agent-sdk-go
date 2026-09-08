@@ -663,6 +663,9 @@ func WithSandboxNetwork(network *SandboxNetworkConfig) Option {
 
 // WithPlugins sets the plugin configurations.
 // This replaces any previously configured plugins.
+//
+// WithPlugins 设置插件配置。
+// 该调用会替换之前已配置的全部插件。
 func WithPlugins(plugins []SdkPluginConfig) Option {
 	return func(o *Options) {
 		o.Plugins = plugins
@@ -671,6 +674,9 @@ func WithPlugins(plugins []SdkPluginConfig) Option {
 
 // WithPlugin appends a single plugin configuration.
 // Multiple calls accumulate plugins.
+//
+// WithPlugin 追加单个插件配置。
+// 多次调用会累计添加插件。
 func WithPlugin(plugin SdkPluginConfig) Option {
 	return func(o *Options) {
 		o.Plugins = append(o.Plugins, plugin)
@@ -679,6 +685,9 @@ func WithPlugin(plugin SdkPluginConfig) Option {
 
 // WithLocalPlugin appends a local plugin by path.
 // This is a convenience method for the common case of local plugins.
+//
+// WithLocalPlugin 按路径追加本地插件。
+// 这是面向本地插件这一常见场景的便捷方法。
 func WithLocalPlugin(path string) Option {
 	return func(o *Options) {
 		o.Plugins = append(o.Plugins, SdkPluginConfig{
@@ -694,6 +703,12 @@ func WithLocalPlugin(path string) Option {
 // a temporary local plugin wrapper without copying them into the project or
 // user ~/.claude directory. Use SkillRegistryScopedName when explicitly
 // instructing Claude to invoke one of these Skills.
+//
+// WithSkillRegistry 从外部技能注册表目录暴露指定的 Skill。
+// 注册表根目录下每个 Skill 都必须对应一个子目录，且其中包含 SKILL.md。
+// SDK 会通过临时本地插件封装把选中的 Skill 呈现给 Claude CLI，
+// 而不会把它们复制到项目目录或用户的 ~/.claude 目录中。
+// 需要显式指示 Claude 调用这些 Skill 时，请使用 SkillRegistryScopedName。
 func WithSkillRegistry(root string, names ...string) Option {
 	return func(o *Options) {
 		selected := append([]string(nil), names...)
@@ -707,6 +722,9 @@ func WithSkillRegistry(root string, names ...string) Option {
 // WithSkillRegistryAll exposes every direct child Skill in an external
 // registry directory. A child directory is considered a Skill when it contains
 // SKILL.md.
+//
+// WithSkillRegistryAll 暴露外部注册表目录下的所有直接子 Skill。
+// 当某个子目录包含 SKILL.md 时，就会被视为一个 Skill。
 func WithSkillRegistryAll(root string) Option {
 	return func(o *Options) {
 		o.SkillRegistries = append(o.SkillRegistries, SkillRegistryConfig{
@@ -718,6 +736,9 @@ func WithSkillRegistryAll(root string) Option {
 
 // WithAgents sets the programmatic agent definitions.
 // This replaces any existing agents.
+//
+// WithAgents 设置编程式 agent 定义。
+// 该调用会替换已有的全部 agent。
 func WithAgents(agents map[string]AgentDefinition) Option {
 	return func(o *Options) {
 		o.Agents = agents
@@ -726,6 +747,9 @@ func WithAgents(agents map[string]AgentDefinition) Option {
 
 // WithAgent adds or updates a single agent definition.
 // Multiple calls merge agents (later calls override same-name agents).
+//
+// WithAgent 添加或更新单个 agent 定义。
+// 多次调用会合并 agent；名称相同的 agent 以后一次调用为准。
 func WithAgent(name string, agent AgentDefinition) Option {
 	return func(o *Options) {
 		if o.Agents == nil {
@@ -739,10 +763,13 @@ const customTransportMarker = "custom_transport"
 
 // WithTransport sets a custom transport for testing.
 // Since Transport is not part of Options struct, this is handled in client creation.
+//
+// WithTransport 为测试设置自定义 transport。
+// 由于 Transport 不属于 Options 结构体的一部分，因此实际处理发生在客户端创建阶段。
 func WithTransport(_ Transport) Option {
 	return func(o *Options) {
-		// This will be handled in client implementation
-		// For now, we'll use a special marker in ExtraArgs
+		// 这里不会直接保存 transport，而是打一个特殊标记，
+		// 让客户端实现层在创建时识别并接管该配置。
 		if o.ExtraArgs == nil {
 			o.ExtraArgs = make(map[string]*string)
 		}
@@ -752,11 +779,13 @@ func WithTransport(_ Transport) Option {
 }
 
 // NewOptions creates Options with default values using functional options pattern.
+//
+// NewOptions 使用函数式选项模式创建带默认值的 Options。
 func NewOptions(opts ...Option) *Options {
-	// Create options with defaults from shared package
+	// 先从 shared 包拿到统一的默认配置，再叠加调用方传入的函数式选项。
 	options := shared.NewOptions()
 
-	// Apply functional options
+	// 依次应用函数式选项，后传入的配置覆盖先前结果。
 	for _, opt := range opts {
 		opt(options)
 	}
@@ -767,6 +796,10 @@ func NewOptions(opts ...Option) *Options {
 // WithDebugWriter sets the writer for CLI debug output.
 // If not set, stderr is isolated to a temporary file (default behavior).
 // Common values: os.Stderr, io.Discard, or a custom io.Writer like bytes.Buffer.
+//
+// WithDebugWriter 设置 CLI 调试输出的写入目标。
+// 若未设置，stderr 会被隔离到临时文件中（默认行为）。
+// 常见取值包括 os.Stderr、io.Discard，或 bytes.Buffer 这类自定义 io.Writer。
 func WithDebugWriter(w io.Writer) Option {
 	return func(o *Options) {
 		o.DebugWriter = w
@@ -775,12 +808,18 @@ func WithDebugWriter(w io.Writer) Option {
 
 // WithDebugStderr redirects CLI debug output to os.Stderr.
 // This is useful for seeing debug output in real-time during development.
+//
+// WithDebugStderr 将 CLI 调试输出重定向到 os.Stderr。
+// 这对在开发阶段实时查看调试信息很有帮助。
 func WithDebugStderr() Option {
 	return WithDebugWriter(os.Stderr)
 }
 
 // WithDebugDisabled discards all CLI debug output.
 // This is more explicit than the default nil behavior but has the same effect.
+//
+// WithDebugDisabled 丢弃全部 CLI 调试输出。
+// 这比默认的 nil 行为更显式，但效果相同。
 func WithDebugDisabled() Option {
 	return WithDebugWriter(io.Discard)
 }
@@ -790,6 +829,11 @@ func WithDebugDisabled() Option {
 // Lines are stripped of trailing whitespace before being passed to the callback.
 // This takes precedence over WithDebugWriter if both are set.
 // Callback panics are silently recovered to prevent crashing the SDK.
+//
+// WithStderrCallback 设置一个回调，用于接收 CLI 的 stderr 输出。
+// 回调会针对每一行非空 stderr 内容调用一次；传入前会去掉行尾空白。
+// 若同时设置了 WithDebugWriter，则以该回调为准。
+// 为避免 SDK 崩溃，回调中的 panic 会被静默恢复。
 func WithStderrCallback(callback func(string)) Option {
 	return func(o *Options) {
 		o.StderrCallback = callback
@@ -797,6 +841,8 @@ func WithStderrCallback(callback func(string)) Option {
 }
 
 // OutputFormatJSONSchema creates an OutputFormat for JSON schema constraints.
+//
+// OutputFormatJSONSchema 为 JSON schema 约束创建一个 OutputFormat。
 func OutputFormatJSONSchema(schema map[string]any) *OutputFormat {
 	return &OutputFormat{
 		Type:   "json_schema",
@@ -805,6 +851,8 @@ func OutputFormatJSONSchema(schema map[string]any) *OutputFormat {
 }
 
 // WithOutputFormat sets the output format for structured responses.
+//
+// WithOutputFormat 设置结构化响应的输出格式。
 func WithOutputFormat(format *OutputFormat) Option {
 	return func(o *Options) {
 		o.OutputFormat = format
@@ -813,6 +861,9 @@ func WithOutputFormat(format *OutputFormat) Option {
 
 // WithJSONSchema is a convenience function that sets a JSON schema output format.
 // This is equivalent to WithOutputFormat(OutputFormatJSONSchema(schema)).
+//
+// WithJSONSchema 是设置 JSON schema 输出格式的便捷函数，
+// 等价于 WithOutputFormat(OutputFormatJSONSchema(schema))。
 func WithJSONSchema(schema map[string]any) Option {
 	return func(o *Options) {
 		if schema == nil {
@@ -826,6 +877,10 @@ func WithJSONSchema(schema map[string]any) Option {
 // WithIncludePartialMessages enables streaming of partial message updates.
 // When true, StreamEvent messages are emitted during response generation,
 // providing real-time progress as the model generates content.
+//
+// WithIncludePartialMessages 启用部分消息的流式更新。
+// 为 true 时，响应生成过程中会发出 StreamEvent 消息，
+// 从而在模型生成内容时提供实时进度。
 func WithIncludePartialMessages(include bool) Option {
 	return func(o *Options) {
 		o.IncludePartialMessages = include
@@ -834,6 +889,9 @@ func WithIncludePartialMessages(include bool) Option {
 
 // WithPartialStreaming is a convenience function that enables partial message streaming.
 // Equivalent to WithIncludePartialMessages(true).
+//
+// WithPartialStreaming 是启用部分消息流式传输的便捷函数，
+// 等价于 WithIncludePartialMessages(true)。
 func WithPartialStreaming() Option {
 	return WithIncludePartialMessages(true)
 }
@@ -841,6 +899,10 @@ func WithPartialStreaming() Option {
 // WithEnableFileCheckpointing enables or disables file checkpointing.
 // When enabled, file changes are tracked during the session and can be
 // rewound to their state at any user message using Client.RewindFiles().
+//
+// WithEnableFileCheckpointing 启用或禁用文件检查点。
+// 启用后，会话期间的文件变更会被跟踪，并可通过 Client.RewindFiles()
+// 回退到任意一条用户消息对应时刻的状态。
 func WithEnableFileCheckpointing(enable bool) Option {
 	return func(o *Options) {
 		o.EnableFileCheckpointing = enable
@@ -850,12 +912,18 @@ func WithEnableFileCheckpointing(enable bool) Option {
 // WithFileCheckpointing enables file checkpointing.
 // Equivalent to WithEnableFileCheckpointing(true).
 // This is the recommended convenience function for enabling file checkpointing.
+//
+// WithFileCheckpointing 启用文件检查点。
+// 它等价于 WithEnableFileCheckpointing(true)，也是推荐的便捷用法。
 func WithFileCheckpointing() Option {
 	return WithEnableFileCheckpointing(true)
 }
 
 // NewPermissionResultAllow creates an Allow result with proper defaults.
 // Use this to permit tool execution.
+//
+// NewPermissionResultAllow 创建一个带有正确默认值的允许结果。
+// 在需要放行工具执行时使用它。
 //
 // Example:
 //
@@ -865,6 +933,9 @@ var NewPermissionResultAllow = control.NewPermissionResultAllow
 // NewPermissionResultDeny creates a Deny result with proper defaults.
 // Use this to deny tool execution with a reason message.
 //
+// NewPermissionResultDeny 创建一个带有正确默认值的拒绝结果。
+// 在需要附带原因地拒绝工具执行时使用它。
+//
 // Example:
 //
 //	return claudecode.NewPermissionResultDeny("Only Read tool is allowed"), nil
@@ -873,6 +944,10 @@ var NewPermissionResultDeny = control.NewPermissionResultDeny
 // WithCanUseTool sets the permission callback for tool usage requests.
 // The callback is invoked when Claude CLI requests permission to use a tool.
 // It receives the tool name, input parameters, and context for decision-making.
+//
+// WithCanUseTool 设置工具使用请求的权限回调。
+// 当 Claude CLI 请求使用某个工具时会触发该回调，
+// 并向其传入工具名、输入参数以及做决策所需的上下文。
 //
 // Example - Allow all Read tool calls, deny others:
 //
@@ -890,24 +965,24 @@ var NewPermissionResultDeny = control.NewPermissionResultDeny
 //	    }),
 //	)
 //
-// The callback must be thread-safe as it may be invoked concurrently.
-// If no callback is set, all tool requests are denied (secure default).
+// 回调可能被并发调用，因此必须保证线程安全。
+// 若未设置回调，则所有工具请求都会被拒绝（安全默认值）。
 func WithCanUseTool(callback CanUseToolCallback) Option {
 	return func(o *Options) {
-		// Handle nil callback explicitly
+		// 显式处理 nil，允许调用方清空之前配置的权限回调。
 		if callback == nil {
 			o.CanUseTool = nil
 			return
 		}
-		// Store a wrapper that converts between control types and any types
-		// to bridge the type boundary between shared.Options and control package
+		// 这里存一个桥接包装器，把 shared.Options 中的 any 类型
+		// 转回 control 包中的强类型上下文，避免公开 API 泄漏内部细节。
 		o.CanUseTool = func(
 			ctx context.Context,
 			toolName string,
 			input map[string]any,
 			permCtx any,
 		) (any, error) {
-			// Convert permCtx back to strongly-typed ToolPermissionContext
+			// 透传前尽量恢复为强类型上下文；若断言失败则退回空上下文。
 			tpc, ok := permCtx.(control.ToolPermissionContext)
 			if !ok {
 				tpc = control.ToolPermissionContext{}
@@ -918,9 +993,13 @@ func WithCanUseTool(callback CanUseToolCallback) Option {
 }
 
 // HookEvent represents lifecycle events that can trigger hooks.
+//
+// HookEvent 表示可触发 Hook 的生命周期事件。
 type HookEvent = control.HookEvent
 
 // Hook event constants.
+//
+// Hook 事件常量。
 const (
 	// HookEventPreToolUse is triggered before a tool is executed.
 	HookEventPreToolUse = control.HookEventPreToolUse
@@ -945,21 +1024,33 @@ const (
 )
 
 // HookCallback is the function signature for hook callbacks.
+//
+// HookCallback 是 Hook 回调函数的签名。
 type HookCallback = control.HookCallback
 
 // HookMatcher defines which hooks to trigger for a given pattern.
+//
+// HookMatcher 定义在给定匹配模式下应触发哪些 Hook。
 type HookMatcher = control.HookMatcher
 
 // HookContext provides context information for hook callbacks.
+//
+// HookContext 为 Hook 回调提供上下文信息。
 type HookContext = control.HookContext
 
 // HookJSONOutput is the synchronous hook output structure.
+//
+// HookJSONOutput 是同步 Hook 的输出结构。
 type HookJSONOutput = control.HookJSONOutput
 
 // AsyncHookJSONOutput indicates the hook will respond asynchronously.
+//
+// AsyncHookJSONOutput 表示 Hook 将以异步方式返回结果。
 type AsyncHookJSONOutput = control.AsyncHookJSONOutput
 
 // BaseHookInput and related types represent hook event inputs.
+//
+// BaseHookInput 及相关类型表示 Hook 事件的输入参数。
 type (
 	// BaseHookInput contains common fields present across all hook events.
 	BaseHookInput = control.BaseHookInput
@@ -986,6 +1077,8 @@ type (
 )
 
 // PreToolUseHookSpecificOutput and related types contain hook-specific output fields.
+//
+// PreToolUseHookSpecificOutput 及相关类型包含 Hook 专属的输出字段。
 type (
 	// PreToolUseHookSpecificOutput contains PreToolUse-specific output fields.
 	PreToolUseHookSpecificOutput = control.PreToolUseHookSpecificOutput
@@ -1006,6 +1099,9 @@ type (
 // WithHooks sets the complete hook configuration for lifecycle events.
 // This replaces any previously configured hooks.
 //
+// WithHooks 设置生命周期事件的完整 Hook 配置。
+// 该调用会替换之前配置的所有 Hook。
+//
 // Example - Configure multiple hooks:
 //
 //	client := claudecode.NewClient(
@@ -1025,6 +1121,9 @@ func WithHooks(hooks map[HookEvent][]HookMatcher) Option {
 // Multiple calls accumulate hooks for the same event.
 // Pass empty string for matcher to match all tools.
 //
+// WithHook 为指定事件和工具匹配模式追加一个 Hook 回调。
+// 对同一事件多次调用会累计 Hook；matcher 传空字符串时表示匹配所有工具。
+//
 // Example - Add a PreToolUse hook for Bash commands:
 //
 //	client := claudecode.NewClient(
@@ -1037,7 +1136,7 @@ func WithHook(event HookEvent, matcher string, callback HookCallback) Option {
 		}
 		hooks, ok := o.Hooks.(map[HookEvent][]HookMatcher)
 		if !ok {
-			// If not the expected type, initialize fresh
+			// 若历史值不是预期类型，则重建一个干净的 map 以避免追加失败。
 			hooks = make(map[HookEvent][]HookMatcher)
 			o.Hooks = hooks
 		}
@@ -1050,6 +1149,9 @@ func WithHook(event HookEvent, matcher string, callback HookCallback) Option {
 
 // WithPreToolUseHook is a convenience function to add a PreToolUse hook.
 // Pass empty string for matcher to match all tools.
+//
+// WithPreToolUseHook 是添加 PreToolUse Hook 的便捷函数。
+// matcher 传空字符串时表示匹配所有工具。
 //
 // Example:
 //
@@ -1065,6 +1167,9 @@ func WithPreToolUseHook(matcher string, callback HookCallback) Option {
 
 // WithPostToolUseHook is a convenience function to add a PostToolUse hook.
 // Pass empty string for matcher to match all tools.
+//
+// WithPostToolUseHook 是添加 PostToolUse Hook 的便捷函数。
+// matcher 传空字符串时表示匹配所有工具。
 func WithPostToolUseHook(matcher string, callback HookCallback) Option {
 	return WithHook(HookEventPostToolUse, matcher, callback)
 }

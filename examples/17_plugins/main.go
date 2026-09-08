@@ -20,6 +20,8 @@
 // plugin directories.
 //
 // Run: go run main.go
+//
+// Package main 演示插件配置接口，重点说明本地插件、显式配置和批量配置三种常见写法。
 package main
 
 import (
@@ -33,24 +35,24 @@ func main() {
 	fmt.Println("=================================================")
 	fmt.Println()
 
-	// Example 1: Single Plugin with WithLocalPlugin
+	// 示例 1：最简洁的单插件配置方式。
 	fmt.Println("--- Example 1: Single Plugin Configuration ---")
 	fmt.Println("Using WithLocalPlugin convenience function...")
 	demonstrateSinglePlugin()
 
-	// Example 2: Single Plugin with Explicit Config
+	// 示例 2：显式构造插件配置对象。
 	fmt.Println()
 	fmt.Println("--- Example 2: Explicit Plugin Configuration ---")
 	fmt.Println("Using WithPlugin with SdkPluginConfig...")
 	demonstrateExplicitConfig()
 
-	// Example 3: Multiple Plugins
+	// 示例 3：一次性配置多个插件。
 	fmt.Println()
 	fmt.Println("--- Example 3: Multiple Plugins ---")
 	fmt.Println("Configuring multiple plugins with WithPlugins...")
 	demonstrateMultiplePlugins()
 
-	// Example 4: Plugin Configuration Patterns
+	// 示例 4：总结几种常见的组合写法。
 	fmt.Println()
 	fmt.Println("--- Example 4: Configuration Patterns ---")
 	fmt.Println("Common plugin configuration patterns...")
@@ -60,12 +62,14 @@ func main() {
 	fmt.Println("Plugins configuration example completed!")
 }
 
-// demonstrateSinglePlugin shows the WithLocalPlugin convenience function
+// demonstrateSinglePlugin shows the WithLocalPlugin convenience function.
+//
+// demonstrateSinglePlugin 展示最简单的本地插件配置方式。
 func demonstrateSinglePlugin() {
-	// WithLocalPlugin is the simplest way to add a local plugin
+	// WithLocalPlugin 适合只追加一个本地插件路径的场景。
 	pluginPath := "/path/to/my-plugin"
 
-	// Create a client with the plugin (demonstration only)
+	// 这里只演示配置对象如何挂到 client 上，不实际连接 CLI。
 	client := claudecode.NewClient(
 		claudecode.WithLocalPlugin(pluginPath),
 	)
@@ -73,13 +77,15 @@ func demonstrateSinglePlugin() {
 	fmt.Printf("Configured plugin path: %s\n", pluginPath)
 	fmt.Printf("Client created with plugin configuration\n")
 
-	// Note: We don't connect since this is just a configuration demo
+	// 纯配置示例无需真正连接，重点在查看调用形式。
 	_ = client
 }
 
-// demonstrateExplicitConfig shows using SdkPluginConfig directly
+// demonstrateExplicitConfig shows using SdkPluginConfig directly.
+//
+// demonstrateExplicitConfig 演示如何显式构造 SdkPluginConfig。
 func demonstrateExplicitConfig() {
-	// Create explicit plugin configuration
+	// 当需要先在代码里组织配置，再统一传入时，这种方式更直观。
 	pluginConfig := claudecode.SdkPluginConfig{
 		Type: claudecode.SdkPluginTypeLocal,
 		Path: "/path/to/custom-plugin",
@@ -89,7 +95,7 @@ func demonstrateExplicitConfig() {
 	fmt.Printf("Plugin Path: %s\n", pluginConfig.Path)
 	fmt.Println()
 
-	// Create a client with explicit config
+	// 通过 WithPlugin 把显式配置追加到客户端。
 	client := claudecode.NewClient(
 		claudecode.WithPlugin(pluginConfig),
 	)
@@ -98,9 +104,11 @@ func demonstrateExplicitConfig() {
 	_ = client
 }
 
-// demonstrateMultiplePlugins shows configuring multiple plugins
+// demonstrateMultiplePlugins shows configuring multiple plugins.
+//
+// demonstrateMultiplePlugins 演示批量配置多个插件。
 func demonstrateMultiplePlugins() {
-	// Define multiple plugins
+	// 批量场景下通常先准备一个切片，再统一传给 WithPlugins。
 	plugins := []claudecode.SdkPluginConfig{
 		{
 			Type: claudecode.SdkPluginTypeLocal,
@@ -122,7 +130,7 @@ func demonstrateMultiplePlugins() {
 	}
 	fmt.Println()
 
-	// Create client with all plugins
+	// 一次性挂入全部插件配置。
 	client := claudecode.NewClient(
 		claudecode.WithPlugins(plugins),
 	)
@@ -131,7 +139,9 @@ func demonstrateMultiplePlugins() {
 	_ = client
 }
 
-// showConfigurationPatterns demonstrates common plugin patterns
+// showConfigurationPatterns demonstrates common plugin patterns.
+//
+// showConfigurationPatterns 汇总几种常见的插件配置模式。
 func showConfigurationPatterns() {
 	fmt.Println("Pattern 1: Chaining WithLocalPlugin calls")
 	fmt.Println("  claudecode.NewClient(")

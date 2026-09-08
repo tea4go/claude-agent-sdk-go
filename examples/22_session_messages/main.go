@@ -6,6 +6,8 @@
 //
 // Run: go run main.go
 // Requires: Claude CLI installed and authenticated.
+//
+// Package main 演示如何从磁盘读取某个会话的消息内容，并按类型解析内容块。
 package main
 
 import (
@@ -24,7 +26,7 @@ func main() {
 
 	ctx := context.Background()
 
-	// Step 1: Create a session by running a query.
+	// 第 1 步：先真实跑一轮查询，确保磁盘上有可读取的会话文件。
 	fmt.Println("\n1. Running a query to create a session...")
 	sessionID, err := runQuery(ctx)
 	if err != nil {
@@ -32,7 +34,7 @@ func main() {
 	}
 	fmt.Printf("   Session ID: %s\n", sessionID)
 
-	// Step 2: Read session metadata.
+	// 第 2 步：读取会话元数据，确认摘要、目录和创建时间。
 	fmt.Println("\n2. Reading session info from disk...")
 	info, err := claudecode.GetSessionInfo(sessionID)
 	if err != nil {
@@ -50,7 +52,7 @@ func main() {
 		fmt.Printf("   Created: %s\n", time.UnixMilli(*info.CreatedAt).Format(time.RFC3339))
 	}
 
-	// Step 3: Read messages.
+	// 第 3 步：读取并遍历这次会话中的所有消息。
 	fmt.Println("\n3. Reading session messages...")
 	msgs, err := claudecode.GetSessionMessages(sessionID)
 	if err != nil {
@@ -66,6 +68,7 @@ func main() {
 			continue
 		}
 
+		// SessionMessageContent 是一个联合类型，需要先根据 Kind 分派。
 		switch mc.Kind {
 		case claudecode.SessionContentTypeString:
 			preview := mc.String
@@ -109,6 +112,9 @@ func main() {
 	fmt.Println("\nDone!")
 }
 
+// runQuery creates a minimal session and returns its session ID.
+//
+// runQuery 发起一轮最小查询，并返回对应会话 ID。
 func runQuery(ctx context.Context) (string, error) {
 	iter, err := claudecode.Query(ctx, "Say hello briefly.",
 		claudecode.WithMaxTurns(1),
@@ -138,6 +144,9 @@ func runQuery(ctx context.Context) (string, error) {
 	return sessionID, nil
 }
 
+// mapKeys returns all keys of a raw block map.
+//
+// mapKeys 返回原始 block map 的全部键名，便于调试未知块类型。
 func mapKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

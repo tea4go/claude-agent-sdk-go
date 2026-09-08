@@ -1,4 +1,6 @@
 // Package main demonstrates Query API with file tools (Read/Write).
+//
+// Package main 演示结合文件工具（Read/Write）的 Query API 用法。
 package main
 
 import (
@@ -19,13 +21,13 @@ func main() {
 
 	ctx := context.Background()
 
-	// Setup simple demo files
+	// 准备一组最小演示文件，供后续 Read/Write 工具访问。
 	if err := setupFiles(); err != nil {
 		log.Fatalf("Setup failed: %v", err)
 	}
 	defer os.RemoveAll("demo")
 
-	// Change to demo directory
+	// 切到 demo 目录，让示例里的相对路径更直观。
 	if err := os.Chdir("demo"); err != nil {
 		log.Fatalf("Failed to change to demo directory: %v", err)
 	}
@@ -35,7 +37,7 @@ func main() {
 		}
 	}()
 
-	// Example 1: Read and analyze files
+	// 示例 1：只授予 Read，验证只读分析场景。
 	fmt.Println("\n--- Example 1: File Analysis ---")
 	analyzeQuery := `Read README.md and config.json, then analyze:
 1. What this project does
@@ -46,7 +48,7 @@ func main() {
 		log.Printf("Analysis failed: %v", err)
 	}
 
-	// Example 2: Generate documentation
+	// 示例 2：增加 Write，让模型把分析结果落成文档。
 	fmt.Println("\n--- Example 2: Generate Documentation ---")
 	docQuery := `Read all files in the current directory and create a PROJECT_SUMMARY.md with:
 - Project overview
@@ -62,6 +64,9 @@ Use proper markdown formatting.`
 	fmt.Println("\nTool examples completed!")
 }
 
+// queryWithTools runs a single query with an explicit allowed-tools list.
+//
+// queryWithTools 使用显式允许的工具列表执行一次查询，便于观察不同工具权限下的行为。
 func queryWithTools(ctx context.Context, question string, allowedTools []string) error {
 	fmt.Printf("Tools: %v\n", allowedTools)
 	fmt.Printf("Query: %s\n", question)
@@ -96,6 +101,7 @@ func queryWithTools(ctx context.Context, question string, allowedTools []string)
 			break
 		}
 
+		// 对外层消息做分流：助手消息打印正文，用户消息里可能带工具结果回显。
 		switch msg := message.(type) {
 		case *claudecode.AssistantMessage:
 			for _, block := range msg.Content {
@@ -133,6 +139,9 @@ func queryWithTools(ctx context.Context, question string, allowedTools []string)
 	return nil
 }
 
+// setupFiles creates the demo workspace used by this example.
+//
+// setupFiles 创建本示例需要的演示目录与测试文件。
 func setupFiles() error {
 	if err := os.MkdirAll("demo", 0o755); err != nil {
 		return err

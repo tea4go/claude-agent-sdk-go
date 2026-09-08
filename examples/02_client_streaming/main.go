@@ -1,4 +1,6 @@
 // Package main demonstrates streaming with Client API using automatic resource management.
+//
+// Package main 演示结合自动资源管理的 Client API 流式响应。
 package main
 
 import (
@@ -16,7 +18,7 @@ func main() {
 	ctx := context.Background()
 	question := "Explain what Go goroutines are and show a simple example"
 
-	// WithClient handles connection lifecycle automatically
+	// WithClient 自动管理连接生命周期，适合示例和常规业务代码。
 	err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 		fmt.Println("\nConnected! Streaming response:")
 
@@ -24,18 +26,18 @@ func main() {
 			return fmt.Errorf("query failed: %w", err)
 		}
 
-		// Stream messages in real-time
+		// 实时消费消息流，边收到边输出。
 		msgChan := client.ReceiveMessages(ctx)
 		for {
 			select {
 			case message := <-msgChan:
 				if message == nil {
-					return nil // Stream ended
+					return nil // 消息流结束。
 				}
 
 				switch msg := message.(type) {
 				case *claudecode.AssistantMessage:
-					// Print streaming text as it arrives
+					// 助手消息可能按块到达，这里直接流式打印文本块。
 					for _, block := range msg.Content {
 						if textBlock, ok := block.(*claudecode.TextBlock); ok {
 							fmt.Print(textBlock.Text)
@@ -48,7 +50,7 @@ func main() {
 						}
 						return fmt.Errorf("error: unknown error")
 					}
-					return nil // Success, stream complete
+					return nil // 成功收尾，当前轮响应完成。
 				}
 			case <-ctx.Done():
 				return ctx.Err()

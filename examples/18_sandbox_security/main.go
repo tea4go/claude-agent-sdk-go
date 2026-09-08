@@ -21,6 +21,8 @@
 // Windows users will see sandbox settings but execution behavior may differ.
 //
 // Run: go run main.go
+//
+// Package main 演示沙箱安全配置，说明如何限制 Bash 执行环境、网络能力和例外命令。
 package main
 
 import (
@@ -35,7 +37,7 @@ func main() {
 	fmt.Println("============================================")
 	fmt.Println()
 
-	// Show platform information
+	// 先打印平台信息，提醒用户沙箱能力的系统差异。
 	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		fmt.Println("Status: Sandbox is supported on this platform")
@@ -44,24 +46,24 @@ func main() {
 	}
 	fmt.Println()
 
-	// Example 1: Basic Sandbox Configuration
+	// 示例 1：最基础的沙箱启用方式。
 	fmt.Println("--- Example 1: Basic Sandbox Configuration ---")
 	fmt.Println("Enabling sandbox with auto-allow for bash commands...")
 	demonstrateBasicSandbox()
 
-	// Example 2: Command Exclusions
+	// 示例 2：为少数命令配置沙箱例外。
 	fmt.Println()
 	fmt.Println("--- Example 2: Command Exclusions ---")
 	fmt.Println("Excluding specific commands from sandboxing...")
 	demonstrateExclusions()
 
-	// Example 3: Network Configuration
+	// 示例 3：细化沙箱内的网络访问能力。
 	fmt.Println()
 	fmt.Println("--- Example 3: Network Configuration ---")
 	fmt.Println("Configuring network access in sandbox...")
 	demonstrateNetworkConfig()
 
-	// Example 4: Full Sandbox Settings
+	// 示例 4：一次性给出完整的 SandboxSettings。
 	fmt.Println()
 	fmt.Println("--- Example 4: Full Sandbox Settings ---")
 	fmt.Println("Using complete SandboxSettings configuration...")
@@ -71,9 +73,11 @@ func main() {
 	fmt.Println("Sandbox security example completed!")
 }
 
-// demonstrateBasicSandbox shows basic sandbox enablement
+// demonstrateBasicSandbox shows basic sandbox enablement.
+//
+// demonstrateBasicSandbox 演示如何开启最基础的沙箱模式。
 func demonstrateBasicSandbox() {
-	// Create client with basic sandbox configuration
+	// 这里只展示配置组合，不真正执行命令。
 	client := claudecode.NewClient(
 		claudecode.WithSandboxEnabled(true),
 		claudecode.WithAutoAllowBashIfSandboxed(true),
@@ -89,9 +93,11 @@ func demonstrateBasicSandbox() {
 	_ = client
 }
 
-// demonstrateExclusions shows excluding commands from sandbox
+// demonstrateExclusions shows excluding commands from sandbox.
+//
+// demonstrateExclusions 演示为特定命令绕过沙箱。
 func demonstrateExclusions() {
-	// Some commands may need to bypass the sandbox for functionality
+	// 有些命令需要完整系统能力，因此通常会被列入白名单例外。
 	excludedCommands := []string{"git", "docker", "npm"}
 
 	client := claudecode.NewClient(
@@ -109,9 +115,11 @@ func demonstrateExclusions() {
 	_ = client
 }
 
-// demonstrateNetworkConfig shows sandbox network configuration
+// demonstrateNetworkConfig shows sandbox network configuration.
+//
+// demonstrateNetworkConfig 演示如何单独配置沙箱网络能力。
 func demonstrateNetworkConfig() {
-	// Configure network access for sandbox
+	// 允许访问特定 Unix socket，并允许本地绑定。
 	networkConfig := &claudecode.SandboxNetworkConfig{
 		AllowUnixSockets:    []string{"/var/run/docker.sock"},
 		AllowAllUnixSockets: false,
@@ -134,12 +142,14 @@ func demonstrateNetworkConfig() {
 	_ = client
 }
 
-// demonstrateFullSettings shows complete SandboxSettings configuration
+// demonstrateFullSettings shows complete SandboxSettings configuration.
+//
+// demonstrateFullSettings 展示一个较完整的 SandboxSettings 示例。
 func demonstrateFullSettings() {
-	// HTTP proxy port for demonstration
+	// 这里用一个代理端口示意 HTTP 代理相关配置。
 	httpProxyPort := 8080
 
-	// Create comprehensive sandbox settings
+	// 将命令例外、网络能力、违规忽略规则等一起组合起来。
 	sandboxSettings := &claudecode.SandboxSettings{
 		Enabled:                  true,
 		AutoAllowBashIfSandboxed: true,
