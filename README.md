@@ -1,6 +1,12 @@
 # Claude Agent SDK for Go
 
 <div align="center">
+
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+</div>
+
+<div align="center">
   <img src="gopher.png" alt="Go Gopher" width="200"/>
 </div>
 
