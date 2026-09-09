@@ -1,83 +1,83 @@
-# Feature Parity: Go SDK vs Python SDK
+# 功能对齐：Go SDK 与 Python SDK
 
-This document provides a comprehensive comparison between the Go Agent SDK and the Python Agent SDK, demonstrating 100% feature parity.
-
----
-
-## Executive Summary
-
-**Status: 100% Feature Parity Achieved**
-
-The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features from the Python SDK (`claude-agent-sdk`) with additional Go-idiomatic enhancements.
-
-| Category | Python SDK | Go SDK | Parity |
-|:---------|:-----------|:-------|:-------|
-| Functions | 3 | 4 (+helpers) | 100% |
-| Client Methods | 7 | 13 (+extras) | 100% |
-| Message Types | 5 | 6 | 100% |
-| Content Block Types | 4 | 4 | 100% |
-| Error Types | 5 | 6 | 100% |
-| Hook Events | 6 | 6 | 100% |
-| Option Fields | 30+ | 70+ constructors | 100% |
-| MCP Types | 5 | 9 (+extras) | 100% |
-| Sandbox Config | 3 types | 3 types | 100% |
+本文全面对比 Go Agent SDK 与 Python Agent SDK，说明两者已实现 100% 功能对齐。
 
 ---
 
-## Functions
+## 执行摘要
 
-| Python SDK | Go SDK | Notes |
-|:-----------|:-------|:------|
-| `query(prompt, options)` | `Query(ctx, prompt, opts...)` | Context-first pattern |
-| `tool(name, desc, schema)` | `NewTool(name, desc, schema, handler)` | Factory function vs decorator |
-| `create_sdk_mcp_server(name, version, tools)` | `CreateSDKMcpServer(name, version, tools...)` | Identical functionality |
+**状态：已实现 100% 功能对齐**
 
-### Go SDK Additional Functions
+Go SDK（`github.com/tea4go/claude-agent-sdk-go`）实现了 Python SDK（`claude-agent-sdk`）的全部功能，并额外提供了更符合 Go 习惯的增强能力。
 
-| Function | Description |
-|:---------|:------------|
-| `QueryWithTransport()` | Query with custom transport (testing) |
-| `NewClient()` | Create new Client |
-| `NewClientWithTransport()` | Create Client with custom transport |
-| `WithClient()` | Resource management helper (like `async with`) |
-| `WithClientTransport()` | Resource management with custom transport |
-
----
-
-## Classes / Client Interface
-
-### Python: `ClaudeSDKClient`
-
-| Method | Go Equivalent | Notes |
-|:-------|:--------------|:------|
-| `__init__(options)` | `NewClient(opts...)` | Functional options pattern |
-| `connect(prompt)` | `Connect(ctx, prompt...)` | Context-first |
-| `query(prompt, session_id)` | `Query(ctx, prompt)` / `QueryWithSession(ctx, prompt, sessionID)` | Split into two methods |
-| `receive_messages()` | `ReceiveMessages(ctx)` | Returns channel |
-| `receive_response()` | `ReceiveResponse(ctx)` | Returns MessageIterator |
-| `interrupt()` | `Interrupt(ctx)` | Control-protocol request; connection remains usable |
-| `rewind_files(uuid)` | `RewindFiles(ctx, messageUUID)` | Context-first |
-| `disconnect()` | `Disconnect()` | Identical |
-| `async with` context manager | `WithClient()` helper | Go-idiomatic resource management |
-
-### Go SDK Additional Methods
-
-| Method | Description |
-|:-------|:------------|
-| `SetModel(ctx, model)` | Change model at runtime |
-| `SetPermissionMode(ctx, mode)` | Change permission mode at runtime |
-| `GetStreamIssues()` | Get validation issues from stream |
-| `GetStreamStats()` | Get stream statistics |
-| `GetServerInfo(ctx)` | Get diagnostic information |
+| 类别 | Python SDK | Go SDK | 对齐情况 |
+|:-----|:-----------|:-------|:---------|
+| 函数 | 3 | 4（+ 辅助函数） | 100% |
+| Client 方法 | 7 | 13（+ 扩展方法） | 100% |
+| 消息类型 | 5 | 6 | 100% |
+| 内容块类型 | 4 | 4 | 100% |
+| 错误类型 | 5 | 6 | 100% |
+| Hook 事件 | 6 | 6 | 100% |
+| 选项字段 | 30+ | 70+ 个构造函数 | 100% |
+| MCP 类型 | 5 | 9（+ 扩展类型） | 100% |
+| Sandbox 配置 | 3 种类型 | 3 种类型 | 100% |
 
 ---
 
-## Configuration Options
+## 函数
 
-### ClaudeAgentOptions Mapping
+| Python SDK | Go SDK | 说明 |
+|:-----------|:-------|:-----|
+| `query(prompt, options)` | `Query(ctx, prompt, opts...)` | 采用 Context-first 模式 |
+| `tool(name, desc, schema)` | `NewTool(name, desc, schema, handler)` | 工厂函数替代装饰器 |
+| `create_sdk_mcp_server(name, version, tools)` | `CreateSDKMcpServer(name, version, tools...)` | 功能完全一致 |
 
-| Python Option | Go Option Constructor | Status |
-|:--------------|:---------------------|:-------|
+### Go SDK 额外函数
+
+| 函数 | 说明 |
+|:-----|:-----|
+| `QueryWithTransport()` | 使用自定义 transport 执行查询（适用于测试） |
+| `NewClient()` | 创建新的 Client |
+| `NewClientWithTransport()` | 使用自定义 transport 创建 Client |
+| `WithClient()` | 资源管理辅助函数（类似 `async with`） |
+| `WithClientTransport()` | 带自定义 transport 的资源管理辅助函数 |
+
+---
+
+## 类 / Client 接口
+
+### Python：`ClaudeSDKClient`
+
+| 方法 | Go 对应项 | 说明 |
+|:-----|:----------|:-----|
+| `__init__(options)` | `NewClient(opts...)` | 函数式选项模式 |
+| `connect(prompt)` | `Connect(ctx, prompt...)` | 采用 Context-first 模式 |
+| `query(prompt, session_id)` | `Query(ctx, prompt)` / `QueryWithSession(ctx, prompt, sessionID)` | 拆分为两个方法 |
+| `receive_messages()` | `ReceiveMessages(ctx)` | 返回 channel |
+| `receive_response()` | `ReceiveResponse(ctx)` | 返回 `MessageIterator` |
+| `interrupt()` | `Interrupt(ctx)` | 控制协议请求；连接仍可继续使用 |
+| `rewind_files(uuid)` | `RewindFiles(ctx, messageUUID)` | 采用 Context-first 模式 |
+| `disconnect()` | `Disconnect()` | 功能一致 |
+| `async with` 上下文管理器 | `WithClient()` 辅助函数 | 更符合 Go 习惯的资源管理方式 |
+
+### Go SDK 额外方法
+
+| 方法 | 说明 |
+|:-----|:-----|
+| `SetModel(ctx, model)` | 在运行时切换模型 |
+| `SetPermissionMode(ctx, mode)` | 在运行时切换权限模式 |
+| `GetStreamIssues()` | 获取流校验问题 |
+| `GetStreamStats()` | 获取流统计信息 |
+| `GetServerInfo(ctx)` | 获取诊断信息 |
+
+---
+
+## 配置选项
+
+### ClaudeAgentOptions 映射
+
+| Python 选项 | Go 选项构造函数 | 状态 |
+|:------------|:----------------|:-----|
 | `allowed_tools` | `WithAllowedTools(tools...)` | PARITY |
 | `disallowed_tools` | `WithDisallowedTools(tools...)` | PARITY |
 | `tools` | `WithTools(tools...)` | PARITY |
@@ -107,7 +107,7 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 | `cli_path` | `WithCLIPath(path)` | PARITY |
 | `max_buffer_size` | `WithMaxBufferSize(size)` | PARITY |
 | `stderr` | `WithStderrCallback(callback)` | PARITY |
-| `debug_stderr` (deprecated) | `WithDebugWriter(w)` | PARITY |
+| `debug_stderr`（已弃用） | `WithDebugWriter(w)` | PARITY |
 | - | `WithDebugStderr()` | GO EXTRA |
 | - | `WithDebugDisabled()` | GO EXTRA |
 | `can_use_tool` | `WithCanUseTool(callback)` | PARITY |
@@ -136,22 +136,22 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 
 ---
 
-## Message Types
+## 消息类型
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `Message` (union) | `Message` interface | PARITY |
-| `UserMessage` | `UserMessage` struct | PARITY |
-| `AssistantMessage` | `AssistantMessage` struct | PARITY |
-| `SystemMessage` | `SystemMessage` struct | PARITY |
-| `ResultMessage` | `ResultMessage` struct | PARITY |
-| `StreamEvent` | `StreamEvent` struct | PARITY |
-| - | `RawControlMessage` struct | GO EXTRA |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `Message`（联合类型） | `Message` 接口 | PARITY |
+| `UserMessage` | `UserMessage` 结构体 | PARITY |
+| `AssistantMessage` | `AssistantMessage` 结构体 | PARITY |
+| `SystemMessage` | `SystemMessage` 结构体 | PARITY |
+| `ResultMessage` | `ResultMessage` 结构体 | PARITY |
+| `StreamEvent` | `StreamEvent` 结构体 | PARITY |
+| - | `RawControlMessage` 结构体 | GO EXTRA |
 
-### Message Type Constants
+### 消息类型常量
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"user"` | `MessageTypeUser` | PARITY |
 | `"assistant"` | `MessageTypeAssistant` | PARITY |
 | `"system"` | `MessageTypeSystem` | PARITY |
@@ -162,20 +162,20 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 
 ---
 
-## Content Block Types
+## 内容块类型
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `ContentBlock` (union) | `ContentBlock` interface | PARITY |
-| `TextBlock` | `TextBlock` struct | PARITY |
-| `ThinkingBlock` | `ThinkingBlock` struct | PARITY |
-| `ToolUseBlock` | `ToolUseBlock` struct | PARITY |
-| `ToolResultBlock` | `ToolResultBlock` struct | PARITY |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `ContentBlock`（联合类型） | `ContentBlock` 接口 | PARITY |
+| `TextBlock` | `TextBlock` 结构体 | PARITY |
+| `ThinkingBlock` | `ThinkingBlock` 结构体 | PARITY |
+| `ToolUseBlock` | `ToolUseBlock` 结构体 | PARITY |
+| `ToolResultBlock` | `ToolResultBlock` 结构体 | PARITY |
 
-### Content Block Type Constants
+### 内容块类型常量
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"text"` | `ContentBlockTypeText` | PARITY |
 | `"thinking"` | `ContentBlockTypeThinking` | PARITY |
 | `"tool_use"` | `ContentBlockTypeToolUse` | PARITY |
@@ -183,21 +183,21 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 
 ---
 
-## Error Types
+## 错误类型
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `ClaudeSDKError` | `SDKError` interface + `BaseError` | PARITY |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `ClaudeSDKError` | `SDKError` 接口 + `BaseError` | PARITY |
 | `CLIConnectionError` | `ConnectionError` | PARITY |
 | `CLINotFoundError` | `CLINotFoundError` | PARITY |
 | `ProcessError` | `ProcessError` | PARITY |
 | `CLIJSONDecodeError` | `JSONDecodeError` | PARITY |
 | `MessageParseError` | `MessageParseError` | PARITY |
 
-### AssistantMessageError Types
+### AssistantMessageError 类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"authentication_failed"` | `AssistantMessageErrorAuthFailed` | PARITY |
 | `"billing_error"` | `AssistantMessageErrorBilling` | PARITY |
 | `"rate_limit"` | `AssistantMessageErrorRateLimit` | PARITY |
@@ -205,33 +205,33 @@ The Go SDK (`github.com/tea4go/claude-agent-sdk-go`) implements all features fro
 | `"server_error"` | `AssistantMessageErrorServer` | PARITY |
 | `"unknown"` | `AssistantMessageErrorUnknown` | PARITY |
 
-### Go-Specific Error Type Helpers
+### Go 特有的错误类型辅助函数
 
-Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern. These work with wrapped errors (using `errors.As` internally).
+Go SDK 提供了符合 Go 习惯的辅助函数，设计风格类似 `os.IsNotExist`。这些函数支持处理被包装的错误（内部使用 `errors.As`）。
 
-| Function | Description | Status |
-|:---------|:------------|:-------|
-| `IsConnectionError(err)` | Check if error is ConnectionError | GO-NATIVE |
-| `IsCLINotFoundError(err)` | Check if error is CLINotFoundError | GO-NATIVE |
-| `IsProcessError(err)` | Check if error is ProcessError | GO-NATIVE |
-| `IsJSONDecodeError(err)` | Check if error is JSONDecodeError | GO-NATIVE |
-| `IsMessageParseError(err)` | Check if error is MessageParseError | GO-NATIVE |
-| `AsConnectionError(err)` | Extract *ConnectionError or nil | GO-NATIVE |
-| `AsCLINotFoundError(err)` | Extract *CLINotFoundError or nil | GO-NATIVE |
-| `AsProcessError(err)` | Extract *ProcessError or nil | GO-NATIVE |
-| `AsJSONDecodeError(err)` | Extract *JSONDecodeError or nil | GO-NATIVE |
-| `AsMessageParseError(err)` | Extract *MessageParseError or nil | GO-NATIVE |
+| 函数 | 说明 | 状态 |
+|:-----|:-----|:-----|
+| `IsConnectionError(err)` | 判断错误是否为 `ConnectionError` | GO-NATIVE |
+| `IsCLINotFoundError(err)` | 判断错误是否为 `CLINotFoundError` | GO-NATIVE |
+| `IsProcessError(err)` | 判断错误是否为 `ProcessError` | GO-NATIVE |
+| `IsJSONDecodeError(err)` | 判断错误是否为 `JSONDecodeError` | GO-NATIVE |
+| `IsMessageParseError(err)` | 判断错误是否为 `MessageParseError` | GO-NATIVE |
+| `AsConnectionError(err)` | 提取 `*ConnectionError`，失败时返回 `nil` | GO-NATIVE |
+| `AsCLINotFoundError(err)` | 提取 `*CLINotFoundError`，失败时返回 `nil` | GO-NATIVE |
+| `AsProcessError(err)` | 提取 `*ProcessError`，失败时返回 `nil` | GO-NATIVE |
+| `AsJSONDecodeError(err)` | 提取 `*JSONDecodeError`，失败时返回 `nil` | GO-NATIVE |
+| `AsMessageParseError(err)` | 提取 `*MessageParseError`，失败时返回 `nil` | GO-NATIVE |
 
-**Note**: Python uses `isinstance()` for error type checking. Go SDK provides these helpers as a more idiomatic alternative to manual type assertions.
+**说明**：Python 使用 `isinstance()` 检查错误类型。Go SDK 提供这些辅助函数，作为比手动类型断言更符合 Go 习惯的替代方案。
 
 ---
 
-## Hook Types
+## Hook 类型
 
-### Hook Events
+### Hook 事件
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"PreToolUse"` | `HookEventPreToolUse` | PARITY |
 | `"PostToolUse"` | `HookEventPostToolUse` | PARITY |
 | `"UserPromptSubmit"` | `HookEventUserPromptSubmit` | PARITY |
@@ -239,21 +239,21 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 | `"SubagentStop"` | `HookEventSubagentStop` | PARITY |
 | `"PreCompact"` | `HookEventPreCompact` | PARITY |
 
-### Hook Types
+### Hook 类型定义
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `HookEvent` | `HookEvent` type | PARITY |
-| `HookCallback` | `HookCallback` type | PARITY |
-| `HookContext` | `HookContext` struct | PARITY |
-| `HookMatcher` | `HookMatcher` struct | PARITY |
-| `HookJSONOutput` | `HookJSONOutput` struct | PARITY |
-| `AsyncHookJSONOutput` | `AsyncHookJSONOutput` struct | PARITY |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `HookEvent` | `HookEvent` 类型 | PARITY |
+| `HookCallback` | `HookCallback` 类型 | PARITY |
+| `HookContext` | `HookContext` 结构体 | PARITY |
+| `HookMatcher` | `HookMatcher` 结构体 | PARITY |
+| `HookJSONOutput` | `HookJSONOutput` 结构体 | PARITY |
+| `AsyncHookJSONOutput` | `AsyncHookJSONOutput` 结构体 | PARITY |
 
-### Hook Input Types
+### Hook 输入类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `BaseHookInput` | `BaseHookInput` | PARITY |
 | `PreToolUseHookInput` | `PreToolUseHookInput` | PARITY |
 | `PostToolUseHookInput` | `PostToolUseHookInput` | PARITY |
@@ -262,56 +262,56 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 | `SubagentStopHookInput` | `SubagentStopHookInput` | PARITY |
 | `PreCompactHookInput` | `PreCompactHookInput` | PARITY |
 
-### Hook Output Types
+### Hook 输出类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `PreToolUseHookSpecificOutput` | `PreToolUseHookSpecificOutput` | PARITY |
 | `PostToolUseHookSpecificOutput` | `PostToolUseHookSpecificOutput` | PARITY |
 | `UserPromptSubmitHookSpecificOutput` | `UserPromptSubmitHookSpecificOutput` | PARITY |
 
 ---
 
-## MCP Types
+## MCP 类型
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `SdkMcpTool` | `McpTool` struct | PARITY |
-| `McpServerConfig` (union) | `McpServerConfig` interface | PARITY |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `SdkMcpTool` | `McpTool` 结构体 | PARITY |
+| `McpServerConfig`（联合类型） | `McpServerConfig` 接口 | PARITY |
 | `McpStdioServerConfig` | `McpStdioServerConfig` | PARITY |
 | `McpSSEServerConfig` | `McpSSEServerConfig` | PARITY |
 | `McpHttpServerConfig` | `McpHTTPServerConfig` | PARITY |
 | `McpSdkServerConfig` | `McpSdkServerConfig` | PARITY |
 
-### Go SDK MCP Extras
+### Go SDK 的 MCP 扩展
 
-| Type | Description |
-|:-----|:------------|
-| `McpServer` interface | Interface for MCP servers |
-| `SdkMcpServer` struct | In-process server implementation |
-| `McpToolHandler` | Function type for tool handlers |
-| `McpToolResult` | Result from tool execution |
-| `McpContent` | Content in tool result |
-| `McpToolDefinition` | Tool definition for listing |
+| 类型 | 说明 |
+|:-----|:-----|
+| `McpServer` 接口 | MCP server 的抽象接口 |
+| `SdkMcpServer` 结构体 | 进程内 server 实现 |
+| `McpToolHandler` | 工具处理函数类型 |
+| `McpToolResult` | 工具执行结果 |
+| `McpContent` | 工具结果中的内容 |
+| `McpToolDefinition` | 用于工具列表的定义类型 |
 
 ---
 
-## Permission Types
+## 权限类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `CanUseTool` | `CanUseToolCallback` | PARITY |
 | `ToolPermissionContext` | `ToolPermissionContext` | PARITY |
-| `PermissionResult` | `PermissionResult` interface | PARITY |
-| `PermissionResultAllow` | `PermissionResultAllow` struct | PARITY |
-| `PermissionResultDeny` | `PermissionResultDeny` struct | PARITY |
-| `PermissionUpdate` | `PermissionUpdate` struct | PARITY |
-| `PermissionRuleValue` | `PermissionRuleValue` struct | PARITY |
+| `PermissionResult` | `PermissionResult` 接口 | PARITY |
+| `PermissionResultAllow` | `PermissionResultAllow` 结构体 | PARITY |
+| `PermissionResultDeny` | `PermissionResultDeny` 结构体 | PARITY |
+| `PermissionUpdate` | `PermissionUpdate` 结构体 | PARITY |
+| `PermissionRuleValue` | `PermissionRuleValue` 结构体 | PARITY |
 
-### Permission Modes
+### 权限模式
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"default"` | `PermissionModeDefault` | PARITY |
 | `"acceptEdits"` | `PermissionModeAcceptEdits` | PARITY |
 | `"plan"` | `PermissionModePlan` | PARITY |
@@ -319,18 +319,18 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 
 ---
 
-## Sandbox Configuration
+## Sandbox 配置
 
-| Python SDK | Go SDK | Status |
-|:-----------|:-------|:-------|
-| `SandboxSettings` | `SandboxSettings` struct | PARITY |
-| `SandboxNetworkConfig` | `SandboxNetworkConfig` struct | PARITY |
-| `SandboxIgnoreViolations` | `SandboxIgnoreViolations` struct | PARITY |
+| Python SDK | Go SDK | 状态 |
+|:-----------|:-------|:-----|
+| `SandboxSettings` | `SandboxSettings` 结构体 | PARITY |
+| `SandboxNetworkConfig` | `SandboxNetworkConfig` 结构体 | PARITY |
+| `SandboxIgnoreViolations` | `SandboxIgnoreViolations` 结构体 | PARITY |
 
-### SandboxSettings Fields
+### SandboxSettings 字段
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `enabled` | `Enabled` | PARITY |
 | `autoAllowBashIfSandboxed` | `AutoAllowBashIfSandboxed` | PARITY |
 | `excludedCommands` | `ExcludedCommands` | PARITY |
@@ -339,10 +339,10 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 | `ignoreViolations` | `IgnoreViolations` | PARITY |
 | `enableWeakerNestedSandbox` | `EnableWeakerNestedSandbox` | PARITY |
 
-### SandboxNetworkConfig Fields
+### SandboxNetworkConfig 字段
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `allowLocalBinding` | `AllowLocalBinding` | PARITY |
 | `allowUnixSockets` | `AllowUnixSockets` | PARITY |
 | `allowAllUnixSockets` | `AllowAllUnixSockets` | PARITY |
@@ -351,87 +351,87 @@ Go SDK provides idiomatic helper functions following the `os.IsNotExist` pattern
 
 ---
 
-## Advanced Features
+## 高级特性
 
-| Feature | Python SDK | Go SDK | Status |
-|:--------|:-----------|:-------|:-------|
-| Streaming responses | `async for message in query()` | `MessageIterator.Next(ctx)` | PARITY |
-| Partial message streaming | `include_partial_messages=True` | `WithPartialStreaming()` | PARITY |
-| Session management | `resume`, `fork_session` | `WithResume()`, `WithForkSession()` | PARITY |
-| File checkpointing | `enable_file_checkpointing` | `WithFileCheckpointing()` | PARITY |
-| File rewinding | `rewind_files(uuid)` | `RewindFiles(ctx, uuid)` | PARITY |
-| Interrupt support | `interrupt()` | `Interrupt(ctx)` | PARITY (control protocol on all platforms) |
-| Structured output | `output_format` | `WithOutputFormat()`, `WithJSONSchema()` | PARITY |
-| Custom agents | `agents` | `WithAgents()`, `WithAgent()` | PARITY |
-| Plugins | `plugins` | `WithPlugins()`, `WithLocalPlugin()` | PARITY |
-| Beta features | `betas` | `WithBetas()` | PARITY |
+| 特性 | Python SDK | Go SDK | 状态 |
+|:-----|:-----------|:-------|:-----|
+| 流式响应 | `async for message in query()` | `MessageIterator.Next(ctx)` | PARITY |
+| 部分消息流式输出 | `include_partial_messages=True` | `WithPartialStreaming()` | PARITY |
+| 会话管理 | `resume`、`fork_session` | `WithResume()`、`WithForkSession()` | PARITY |
+| 文件检查点 | `enable_file_checkpointing` | `WithFileCheckpointing()` | PARITY |
+| 文件回滚 | `rewind_files(uuid)` | `RewindFiles(ctx, uuid)` | PARITY |
+| 中断支持 | `interrupt()` | `Interrupt(ctx)` | PARITY（所有平台都支持控制协议） |
+| 结构化输出 | `output_format` | `WithOutputFormat()`、`WithJSONSchema()` | PARITY |
+| 自定义 agent | `agents` | `WithAgents()`、`WithAgent()` | PARITY |
+| 插件 | `plugins` | `WithPlugins()`、`WithLocalPlugin()` | PARITY |
+| Beta 特性 | `betas` | `WithBetas()` | PARITY |
 
-### Go SDK Advanced Extras
+### Go SDK 的高级扩展
 
-| Feature | Description |
-|:--------|:------------|
-| `Transport` interface | Custom transport for testing |
-| `StreamValidator` | Stream validation and diagnostics |
-| `GetStreamIssues()` | Get validation issues |
-| `GetStreamStats()` | Get stream statistics |
-| `SetModel()` | Runtime model change |
-| `SetPermissionMode()` | Runtime permission mode change |
-| `GetServerInfo()` | Get diagnostic info |
+| 特性 | 说明 |
+|:-----|:-----|
+| `Transport` 接口 | 便于测试的自定义 transport 抽象 |
+| `StreamValidator` | 用于流校验和诊断 |
+| `GetStreamIssues()` | 获取流问题列表 |
+| `GetStreamStats()` | 获取流统计信息 |
+| `SetModel()` | 在运行时切换模型 |
+| `SetPermissionMode()` | 在运行时切换权限模式 |
+| `GetServerInfo()` | 获取诊断信息 |
 
 ---
 
-## Other Types
+## 其他类型
 
-### Agent Types
+### Agent 类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
-| `AgentDefinition` dataclass | `AgentDefinition` struct | PARITY |
+| Python | Go | 状态 |
+|:-------|:---|:-----|
+| `AgentDefinition` dataclass | `AgentDefinition` 结构体 | PARITY |
 | `"sonnet"` | `AgentModelSonnet` | PARITY |
 | `"opus"` | `AgentModelOpus` | PARITY |
 | `"haiku"` | `AgentModelHaiku` | PARITY |
 | `"inherit"` | `AgentModelInherit` | PARITY |
 
-### Plugin Types
+### Plugin 类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
-| `SdkPluginConfig` TypedDict | `SdkPluginConfig` struct | PARITY |
+| Python | Go | 状态 |
+|:-------|:---|:-----|
+| `SdkPluginConfig` TypedDict | `SdkPluginConfig` 结构体 | PARITY |
 | `"local"` | `SdkPluginTypeLocal` | PARITY |
 
-### Setting Sources
+### Setting Source 类型
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"user"` | `SettingSourceUser` | PARITY |
 | `"project"` | `SettingSourceProject` | PARITY |
 | `"local"` | `SettingSourceLocal` | PARITY |
 
-### Beta Features
+### Beta 特性
 
-| Python | Go | Status |
-|:-------|:---|:-------|
+| Python | Go | 状态 |
+|:-------|:---|:-----|
 | `"context-1m-2025-08-07"` | `SdkBetaContext1M` | PARITY |
 
 ---
 
-## Migration Guide for Python SDK Users
+## 面向 Python SDK 用户的迁移指南
 
-### Key Differences
+### 关键差异
 
-1. **Context-First Pattern**: Go functions accept `context.Context` as the first parameter for cancellation and timeouts.
+1. **Context-first 模式**：Go 函数将 `context.Context` 作为第一个参数，用于取消和超时控制。
 
-2. **Functional Options**: Instead of a single options object, Go uses the functional options pattern with `With*()` functions.
+2. **函数式选项**：Go 不使用单一的 options 对象，而是通过 `With*()` 函数进行配置。
 
-3. **Interfaces vs Classes**: Go uses interfaces (`Client`, `Message`, `ContentBlock`) instead of classes.
+3. **接口替代类**：Go 使用接口（`Client`、`Message`、`ContentBlock`），而不是类。
 
-4. **Error Handling**: Go uses explicit error returns instead of exceptions.
+4. **错误处理方式不同**：Go 使用显式错误返回值，而不是异常机制。
 
-5. **Resource Management**: Use `WithClient()` instead of `async with` for automatic resource cleanup.
+5. **资源管理方式不同**：使用 `WithClient()` 代替 `async with`，以实现自动资源清理。
 
-### Code Comparison
+### 代码对比
 
-**Python:**
+**Python：**
 ```python
 from claude_agent_sdk import query, ClaudeAgentOptions
 
@@ -446,7 +446,7 @@ async for message in query(prompt="Hello", options=options):
         print(message.content)
 ```
 
-**Go:**
+**Go：**
 ```go
 import "github.com/tea4go/claude-agent-sdk-go"
 
@@ -471,9 +471,9 @@ for {
 }
 ```
 
-### Client Usage Comparison
+### Client 用法对比
 
-**Python:**
+**Python：**
 ```python
 async with ClaudeSDKClient(options) as client:
     await client.query("Hello")
@@ -481,7 +481,7 @@ async with ClaudeSDKClient(options) as client:
         print(msg)
 ```
 
-**Go:**
+**Go：**
 ```go
 err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
     if err := client.Query(ctx, "Hello"); err != nil {
@@ -496,16 +496,16 @@ err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 
 ---
 
-## Conclusion
+## 结论
 
-The Go SDK provides complete feature parity with the Python SDK while adding Go-idiomatic enhancements:
+Go SDK 在与 Python SDK 完整对齐的同时，还提供了更符合 Go 生态的扩展能力：
 
-- **100% Python SDK features implemented**
-- **Functional options pattern** for flexible configuration
-- **Context-first design** for proper cancellation and timeouts
-- **Interface-based design** for testability
-- **Additional diagnostic features** (StreamValidator, GetStreamIssues, GetStreamStats)
-- **Runtime configuration changes** (SetModel, SetPermissionMode)
-- **Custom transport support** for testing
+- **已实现 100% Python SDK 功能**
+- **使用函数式选项模式**，配置方式更灵活
+- **采用 Context-first 设计**，便于取消和超时控制
+- **基于接口设计**，更利于测试
+- **提供额外诊断能力**（`StreamValidator`、`GetStreamIssues`、`GetStreamStats`）
+- **支持运行时配置切换**（`SetModel`、`SetPermissionMode`）
+- **支持自定义 transport**，便于测试
 
-The Go SDK is production-ready and suitable for building applications that require Claude Code integration in Go environments.
+Go SDK 已达到生产可用水平，适合在 Go 环境中构建需要集成 Claude Code 的应用。
