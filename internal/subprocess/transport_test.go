@@ -752,11 +752,11 @@ func TestTransportSendMessageEdgeCases(t *testing.T) {
 
 // TestTransportInterruptErrorPaths tests uncovered Interrupt scenarios
 func TestTransportInterruptErrorPaths(t *testing.T) {
-	ctx, cancel := setupTransportTestContext(t, 5*time.Second)
-	defer cancel()
-
 	// Test interrupt on disconnected transport
 	t.Run("interrupt_disconnected_transport", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 5*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLI())
 
 		// Don't connect - test interrupt on disconnected transport
@@ -768,6 +768,9 @@ func TestTransportInterruptErrorPaths(t *testing.T) {
 
 	// Test interrupt with nil process
 	t.Run("interrupt_nil_process", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 5*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLI())
 		defer disconnectTransportSafely(t, transport)
 
@@ -782,17 +785,27 @@ func TestTransportInterruptErrorPaths(t *testing.T) {
 	})
 
 	t.Run("interrupt_uses_streaming_control_protocol", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 5*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
 		defer disconnectTransportSafely(t, transport)
 
 		connectTransportSafely(ctx, t, transport)
 
+		start := time.Now()
 		err := transport.Interrupt(ctx)
 		assertNoTransportError(t, err)
+		if duration := time.Since(start); duration > 2*time.Second {
+			t.Fatalf("Interrupt() took too long: %v", duration)
+		}
 		assertTransportConnected(t, transport, true)
 	})
 
 	t.Run("interrupt_rejects_one_shot_mode", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 5*time.Second)
+		defer cancel()
+
 		transport := NewWithPrompt(newTransportMockCLI(), nil, "test prompt")
 		defer disconnectTransportSafely(t, transport)
 
@@ -1066,29 +1079,41 @@ func newTransportMockCLIWithControlProtocol() string {
 	var extension string
 
 	if runtime.GOOS == windowsOS {
-		extension = testBatExtension
-		// Windows batch script that echoes back control responses
-		script = `@echo off
-if "%1"=="-v" (echo 3.0.0 & exit /b 0)
-setlocal enabledelayedexpansion
-
-:loop
-set /p line=
-if "!line!"=="" goto end
-
-REM Check if it's a control request and echo a response
-echo !line! | findstr /C:"control_request" > nul
-if %errorlevel%==0 (
-    REM Extract request_id and send success response
-    echo {"type":"control_response","response":{"subtype":"success","request_id":"req_1_mock","response":{}}}
+		return createTransportTempPowerShellWrapper(
+			`param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Args
 )
 
-REM Also output regular messages for testing
-echo {"type":"assistant","content":[{"type":"text","text":"Mock response"}],"model":"claude-3"}
-goto loop
+if ($Args.Count -gt 0 -and $Args[0] -eq "-v") {
+    Write-Output "3.0.0"
+    exit 0
+}
 
-:end
-`
+Write-Output '{"type":"assistant","content":[{"type":"text","text":"Mock response"}],"model":"claude-3"}'
+
+while (($line = [Console]::In.ReadLine()) -ne $null) {
+    if ($line -like '*control_request*') {
+        $request = $line | ConvertFrom-Json
+        $requestID = $request.request_id
+        if ([string]::IsNullOrEmpty($requestID)) {
+            $requestID = "req_1_mock"
+        }
+
+        $response = @{
+            type = "control_response"
+            response = @{
+                subtype = "success"
+                request_id = $requestID
+                response = @{}
+            }
+        } | ConvertTo-Json -Compress
+
+        Write-Output $response
+    }
+}
+`,
+		)
 	} else {
 		extension = ""
 		// Bash script that reads control requests and echoes responses
@@ -1118,4 +1143,24 @@ sleep 1
 	}
 
 	return createTransportTempScript(script, extension)
+}
+
+func createTransportTempPowerShellWrapper(script string) string {
+	tempDir := os.TempDir()
+	baseName := fmt.Sprintf("mock-claude-%d", time.Now().UnixNano())
+	ps1Path := filepath.Join(tempDir, baseName+".ps1")
+	batPath := filepath.Join(tempDir, baseName+testBatExtension)
+
+	if err := os.WriteFile(ps1Path, []byte(script), 0o600); err != nil {
+		panic(fmt.Sprintf("Failed to create PowerShell mock script: %v", err))
+	}
+
+	wrapper := "@echo off\r\n" +
+		"powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dpn0.ps1\" %*\r\n" +
+		"exit /b %errorlevel%\r\n"
+	if err := os.WriteFile(batPath, []byte(wrapper), 0o755); err != nil { // #nosec G306 - Test wrapper needs to be executable
+		panic(fmt.Sprintf("Failed to create PowerShell wrapper: %v", err))
+	}
+
+	return batPath
 }

@@ -134,7 +134,7 @@ func TestSubprocessEnvironmentVariables(t *testing.T) {
 			defer cancel()
 
 			// Create transport with test options
-			transport := New("echo", tt.options, true, "sdk-go")
+			transport := New(newTransportMockCLIWithOptions(WithEnvironmentCheck()), tt.options, true, "sdk-go")
 			defer func() {
 				if transport.IsConnected() {
 					_ = transport.Close()

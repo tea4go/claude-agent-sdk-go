@@ -9,11 +9,11 @@ import (
 
 // TestTransportProcessManagement tests process control and termination
 func TestTransportProcessManagement(t *testing.T) {
-	ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-	defer cancel()
-
 	// Test 5-second termination sequence
 	t.Run("five_second_termination", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLIWithOptions(WithLongRunning()))
 		defer disconnectTransportSafely(t, transport)
 
@@ -36,6 +36,9 @@ func TestTransportProcessManagement(t *testing.T) {
 
 	// Test interrupt handling
 	t.Run("interrupt_handling", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
 		defer disconnectTransportSafely(t, transport)
 
@@ -56,11 +59,11 @@ func TestTransportTerminateProcessPaths(t *testing.T) {
 		t.Skip("Process termination testing requires Unix signals")
 	}
 
-	ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-	defer cancel()
-
 	// Test normal termination
 	t.Run("normal_termination", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLI())
 		connectTransportSafely(ctx, t, transport)
 
@@ -71,6 +74,9 @@ func TestTransportTerminateProcessPaths(t *testing.T) {
 
 	// Test SIGTERM timeout (force SIGKILL)
 	t.Run("sigterm_timeout_force_kill", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+		defer cancel()
+
 		transport := setupTransportForTest(t, newTransportMockCLIWithOptions(WithLongRunning()))
 		connectTransportSafely(ctx, t, transport)
 
@@ -88,6 +94,9 @@ func TestTransportTerminateProcessPaths(t *testing.T) {
 
 	// Test context cancellation during termination
 	t.Run("context_cancelled_during_termination", func(t *testing.T) {
+		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+		defer cancel()
+
 		// Create a context that we can cancel
 		shortCtx, shortCancel := context.WithCancel(ctx)
 
