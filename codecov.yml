@@ -22,7 +22,6 @@ coverage:
 
   ignore:
     - "examples/**/*"
-    - "testdata/**/*"
     - "*_test.go"
     - "**/*_test.go"
     - "test/**/*"
