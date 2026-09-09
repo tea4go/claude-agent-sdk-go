@@ -365,7 +365,6 @@ claudecode.Query(ctx, "Analyze and improve this code",
 
 - [架构说明](ARCHITECTURE.md)：系统设计与组件概览
 - [贡献指南](CONTRIBUTING.md)：开发环境与贡献规范
-- [API 参考](docs/reference.md)：完整的 SDK 类型、函数和示例说明
 - [Python SDK 对齐情况](docs/parity.md)：与 Python SDK 的功能对比
 - [pkg.go.dev](https://pkg.go.dev/github.com/tea4go/claude-agent-sdk-go)：GoDoc 在线文档
 

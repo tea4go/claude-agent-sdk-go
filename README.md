@@ -383,7 +383,6 @@ Available agent models: `AgentModelSonnet`, `AgentModelOpus`, `AgentModelHaiku`,
 
 - [Architecture](ARCHITECTURE.md) - System design and component overview
 - [Contributing](CONTRIBUTING.md) - Development setup and guidelines
-- [API Reference](docs/reference.md) - Complete SDK reference with all types, functions, and examples
 - [Python SDK Parity](docs/parity.md) - Feature comparison with the Python SDK
 - [pkg.go.dev](https://pkg.go.dev/github.com/tea4go/claude-agent-sdk-go) - GoDoc reference
 
