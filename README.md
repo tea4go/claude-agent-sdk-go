@@ -42,7 +42,8 @@ go get github.com/tea4go/claude-agent-sdk-go
 **Two APIs for different needs** - Query for automation, Client for interaction
 **100% Python SDK compatibility** - Same functionality, Go-native design
 **Automatic resource management** - WithClient provides Go-idiomatic context manager pattern
-**Session management** - Isolated conversation contexts with `Query()` and `QueryWithSession()`
+**Session management** - Isolated conversation contexts with `Query()` and `QueryWithSession()`, plus on-disk session introspection with `ListSessions()`, `GetSessionInfo()`, and `GetSessionMessages()`
+**Skills & slash commands** - Register in-process skills and discover native CLI slash commands
 **Built-in tool integration** - File operations, AWS, GitHub, databases, and more
 **Production ready** - Comprehensive error handling, timeouts, resource cleanup
 **Security focused** - Granular tool permissions and access controls
@@ -379,6 +380,41 @@ claudecode.Query(ctx, "Analyze and improve this code",
 
 Available agent models: `AgentModelSonnet`, `AgentModelOpus`, `AgentModelHaiku`, `AgentModelInherit`
 
+### Skills & Slash Commands
+
+**Register in-process skills and invoke them through the query interface:**
+
+```go
+claudecode.RegisterSkill("translate", func(ctx context.Context, args string) (string, error) {
+    return "translated: " + args, nil
+})
+
+// Then invoke in a prompt
+iterator, err := claudecode.Query(ctx, "/translate 你好")
+```
+
+**Discover native slash commands for UI suggestions:**
+
+```go
+commands, err := claudecode.DiscoverSlashCommands(ctx)
+for _, cmd := range commands {
+    fmt.Printf("/%s - %s\n", cmd.Name, cmd.Description)
+}
+```
+
+### On-Disk Session Introspection
+
+**Read persisted sessions without a running CLI connection:**
+
+```go
+// List all persisted sessions
+sessions, err := claudecode.ListSessions()
+
+// Inspect a specific session and its messages
+info, err := claudecode.GetSessionInfo(sessionID)
+messages, err := claudecode.GetSessionMessages(sessionID)
+```
+
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) - System design and component overview
@@ -448,6 +484,26 @@ See [`examples/README.md`](examples/README.md) for detailed documentation.
 | [`12_hooks`](examples/12_hooks/) | Lifecycle hooks |
 | [`13_file_checkpointing`](examples/13_file_checkpointing/) | File rewind capabilities |
 | [`14_sdk_mcp_server`](examples/14_sdk_mcp_server/) | In-process custom tools |
+
+### Advanced Patterns
+| Example | Description |
+|---------|-------------|
+| [`15_programmatic_subagents`](examples/15_programmatic_subagents/) | Programmatic subagent definitions |
+| [`16_structured_output`](examples/16_structured_output/) | Structured output with JSON Schema |
+| [`17_plugins`](examples/17_plugins/) | Plugin configuration |
+| [`18_sandbox_security`](examples/18_sandbox_security/) | Sandboxed bash execution |
+| [`19_partial_streaming`](examples/19_partial_streaming/) | Partial streaming for real-time updates |
+| [`20_debugging_and_diagnostics`](examples/20_debugging_and_diagnostics/) | Debug output, env vars, stderr monitoring |
+
+### Sessions & Skills
+| Example | Description |
+|---------|-------------|
+| [`21_list_sessions`](examples/21_list_sessions/) | List sessions from disk (incl. git worktrees) |
+| [`21_skills`](examples/21_skills/) | In-process registered skills |
+| [`22_session_messages`](examples/22_session_messages/) | Read session messages from disk |
+| [`22_status_display`](examples/22_status_display/) | Real-time status display |
+| [`23_skill_registry`](examples/23_skill_registry/) | Load skills from an external registry |
+| [`24_slash_commands`](examples/24_slash_commands/) | Discover native slash commands |
 
 ## License
 

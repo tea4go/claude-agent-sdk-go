@@ -36,7 +36,8 @@ go get github.com/tea4go/claude-agent-sdk-go
 - **两套 API 覆盖不同需求：** `Query` 适合自动化，`Client` 适合交互式场景
 - **100% Python SDK 兼容：** 功能对齐 Python SDK，同时保持 Go 原生设计
 - **自动资源管理：** `WithClient` 提供符合 Go 风格的上下文管理模式
-- **会话管理：** 通过 `Query()` 和 `QueryWithSession()` 隔离对话上下文
+- **会话管理：** 通过 `Query()` 和 `QueryWithSession()` 隔离对话上下文，并通过 `ListSessions()`、`GetSessionInfo()`、`GetSessionMessages()` 直接读取磁盘上的会话
+- **技能与斜杠命令：** 支持注册进程内技能，并发现 CLI 原生斜杠命令
 - **内置工具集成：** 支持文件操作、AWS、GitHub、数据库等工具
 - **可用于生产环境：** 提供完善的错误处理、超时控制和资源清理
 - **安全优先：** 支持细粒度工具权限和访问控制
@@ -361,6 +362,41 @@ claudecode.Query(ctx, "Analyze and improve this code",
 
 可用的 Agent 模型常量：`AgentModelSonnet`、`AgentModelOpus`、`AgentModelHaiku`、`AgentModelInherit`
 
+### 技能与斜杠命令
+
+**注册进程内技能，并通过查询接口调用：**
+
+```go
+claudecode.RegisterSkill("translate", func(ctx context.Context, args string) (string, error) {
+    return "translated: " + args, nil
+})
+
+// 随后在提示词中调用
+iterator, err := claudecode.Query(ctx, "/translate 你好")
+```
+
+**发现原生斜杠命令，用于前端输入建议：**
+
+```go
+commands, err := claudecode.DiscoverSlashCommands(ctx)
+for _, cmd := range commands {
+    fmt.Printf("/%s - %s\n", cmd.Name, cmd.Description)
+}
+```
+
+### 磁盘会话读取
+
+**无需运行中的 CLI 连接即可读取持久化会话：**
+
+```go
+// 列出所有持久化会话
+sessions, err := claudecode.ListSessions()
+
+// 查看特定会话及其消息
+info, err := claudecode.GetSessionInfo(sessionID)
+messages, err := claudecode.GetSessionMessages(sessionID)
+```
+
 ## 文档
 
 - [架构说明](ARCHITECTURE.md)：系统设计与组件概览
@@ -436,6 +472,28 @@ SDK 提供了一系列面向生产环境的高级能力：
 | [`12_hooks`](examples/12_hooks/) | 生命周期 Hook |
 | [`13_file_checkpointing`](examples/13_file_checkpointing/) | 文件回滚能力 |
 | [`14_sdk_mcp_server`](examples/14_sdk_mcp_server/) | 进程内自定义工具 |
+
+### 高级模式
+
+| 示例 | 说明 |
+|------|------|
+| [`15_programmatic_subagents`](examples/15_programmatic_subagents/) | 编程式子 Agent 定义 |
+| [`16_structured_output`](examples/16_structured_output/) | 基于 JSON Schema 的结构化输出 |
+| [`17_plugins`](examples/17_plugins/) | 插件配置 |
+| [`18_sandbox_security`](examples/18_sandbox_security/) | 沙箱化 Bash 执行 |
+| [`19_partial_streaming`](examples/19_partial_streaming/) | 实时部分流式输出 |
+| [`20_debugging_and_diagnostics`](examples/20_debugging_and_diagnostics/) | 调试输出、环境变量、stderr 监控 |
+
+### 会话与技能
+
+| 示例 | 说明 |
+|------|------|
+| [`21_list_sessions`](examples/21_list_sessions/) | 从磁盘列出会话（含 git worktree） |
+| [`21_skills`](examples/21_skills/) | 进程内注册的技能 |
+| [`22_session_messages`](examples/22_session_messages/) | 从磁盘读取会话消息 |
+| [`22_status_display`](examples/22_status_display/) | 实时状态显示 |
+| [`23_skill_registry`](examples/23_skill_registry/) | 从外部注册表加载技能 |
+| [`24_slash_commands`](examples/24_slash_commands/) | 发现原生斜杠命令 |
 
 ## 许可证
 

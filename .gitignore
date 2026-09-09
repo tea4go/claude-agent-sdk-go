@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Go build outputs inside examples (binaries without extension)
+examples/*/*
+
 # Test binary, built with `go test -c`
 *.test
 
