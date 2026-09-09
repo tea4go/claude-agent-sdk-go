@@ -53,10 +53,11 @@ type Transport struct {
 	mu        sync.RWMutex
 
 	// I/O streams
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	stderr     *os.File      // Temporary file for stderr isolation
-	stderrPipe io.ReadCloser // Pipe for callback-based stderr handling
+	stdin       io.WriteCloser
+	stdinWriter io.Writer
+	stdout      io.ReadCloser
+	stderr      *os.File      // Temporary file for stderr isolation
+	stderrPipe  io.ReadCloser // Pipe for callback-based stderr handling
 
 	// Temporary files (cleaned up on Close)
 	mcpConfigFile     *os.File // Temporary MCP config file
@@ -306,7 +307,13 @@ func (t *Transport) setupControlProtocol(ctx context.Context) error {
 		return nil // One-shot mode doesn't need control protocol
 	}
 
-	t.protocolAdapter = NewProtocolAdapter(t.stdin)
+	if t.stdin == nil {
+		return fmt.Errorf("failed to start control protocol: stdin is not initialized")
+	}
+	if t.stdinWriter == nil {
+		t.stdinWriter = newSerializedStdinWriter(t.stdin)
+	}
+	t.protocolAdapter = NewProtocolAdapter(t.stdinWriter)
 	t.protocol = control.NewProtocol(t.protocolAdapter, t.buildProtocolOptions()...)
 
 	if err := t.protocol.Start(ctx); err != nil {
@@ -355,6 +362,10 @@ func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessag
 	if !t.connected || t.stdin == nil {
 		return fmt.Errorf("transport not connected or stdin closed")
 	}
+	writer := t.stdinWriter
+	if writer == nil {
+		writer = t.stdin
+	}
 
 	// Check context cancellation
 	select {
@@ -370,7 +381,7 @@ func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessag
 	}
 
 	// Send with newline
-	_, err = t.stdin.Write(append(data, '\n'))
+	_, err = writer.Write(append(data, '\n'))
 	if err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
@@ -379,6 +390,7 @@ func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessag
 	if t.closeStdin {
 		_ = t.stdin.Close()
 		t.stdin = nil
+		t.stdinWriter = nil
 	}
 
 	return nil
@@ -515,6 +527,7 @@ func (t *Transport) Close() error {
 	protocolAdapter := t.protocolAdapter
 	stdin := t.stdin
 	t.stdin = nil
+	t.stdinWriter = nil
 	cancel := t.cancel
 	transportCtx := t.ctx
 	done := t.closeDone

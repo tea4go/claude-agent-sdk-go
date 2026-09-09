@@ -853,12 +853,24 @@ func (ci *clientIterator) Next(ctx context.Context) (Message, error) {
 			return nil, ErrNoMoreMessages
 		}
 		return msg, nil
-	case err := <-ci.errChan:
+	case err, ok := <-ci.errChan:
+		if !ok {
+			ci.mu.Lock()
+			ci.closed = true
+			ci.mu.Unlock()
+			return nil, ErrNoMoreMessages
+		}
 		ci.mu.Lock()
 		ci.closed = true
 		ci.mu.Unlock()
 		return nil, err
-	case err := <-ci.streamErrChan:
+	case err, ok := <-ci.streamErrChan:
+		if !ok {
+			ci.mu.Lock()
+			ci.closed = true
+			ci.mu.Unlock()
+			return nil, ErrNoMoreMessages
+		}
 		ci.mu.Lock()
 		ci.closed = true
 		ci.mu.Unlock()

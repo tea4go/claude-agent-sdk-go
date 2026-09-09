@@ -97,16 +97,21 @@ type queryIterator struct {
 	closeOnce sync.Once
 }
 
-func (qi *queryIterator) Next(_ context.Context) (Message, error) {
+func (qi *queryIterator) Next(ctx context.Context) (Message, error) {
 	qi.mu.Lock()
 	if qi.closed {
 		qi.mu.Unlock()
 		return nil, ErrNoMoreMessages
 	}
+	if ctx.Err() != nil {
+		qi.closed = true
+		qi.mu.Unlock()
+		return nil, ctx.Err()
+	}
 
 	// Initialize on first call
 	if !qi.started {
-		if err := qi.start(); err != nil {
+		if err := qi.start(ctx); err != nil {
 			qi.mu.Unlock()
 			return nil, err
 		}
@@ -135,11 +140,22 @@ func (qi *queryIterator) Next(_ context.Context) (Message, error) {
 			return nil, ErrNoMoreMessages
 		}
 		return msg, nil
-	case err := <-qi.errChan:
+	case err, ok := <-qi.errChan:
+		if !ok {
+			qi.mu.Lock()
+			qi.closed = true
+			qi.mu.Unlock()
+			return nil, ErrNoMoreMessages
+		}
 		qi.mu.Lock()
 		qi.closed = true
 		qi.mu.Unlock()
 		return nil, err
+	case <-ctx.Done():
+		qi.mu.Lock()
+		qi.closed = true
+		qi.mu.Unlock()
+		return nil, ctx.Err()
 	case <-qi.ctx.Done():
 		qi.mu.Lock()
 		qi.closed = true
@@ -161,7 +177,11 @@ func (qi *queryIterator) Close() error {
 	return err
 }
 
-func (qi *queryIterator) start() error {
+func (qi *queryIterator) start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Connect to transport
 	if err := qi.transport.Connect(qi.ctx); err != nil {
 		return fmt.Errorf("failed to connect transport: %w", err)
@@ -179,7 +199,7 @@ func (qi *queryIterator) start() error {
 		Message: userMsg,
 	}
 
-	if err := qi.transport.SendMessage(qi.ctx, streamMsg); err != nil {
+	if err := qi.transport.SendMessage(ctx, streamMsg); err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 

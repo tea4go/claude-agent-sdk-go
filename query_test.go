@@ -798,6 +798,67 @@ func TestQueryIteratorContextCancellation(t *testing.T) {
 	}
 }
 
+func TestQueryIteratorNextUsesCallContext(t *testing.T) {
+	queryCtx, queryCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer queryCancel()
+
+	iter := &queryIterator{
+		ctx:     queryCtx,
+		started: true,
+		msgChan: make(chan Message),
+		errChan: make(chan error),
+	}
+
+	callCtx, callCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer callCancel()
+
+	done := make(chan struct {
+		msg Message
+		err error
+	}, 1)
+	go func() {
+		msg, err := iter.Next(callCtx)
+		done <- struct {
+			msg Message
+			err error
+		}{msg: msg, err: err}
+	}()
+
+	select {
+	case result := <-done:
+		if result.err != context.DeadlineExceeded {
+			t.Fatalf("Expected context.DeadlineExceeded, got msg=%v err=%v", result.msg, result.err)
+		}
+		if result.msg != nil {
+			t.Fatalf("Expected nil message, got %v", result.msg)
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("Next() did not respect the per-call context deadline")
+	}
+}
+
+func TestQueryIteratorClosedErrorChannelReturnsNoMoreMessages(t *testing.T) {
+	errChan := make(chan error)
+	iter := &queryIterator{
+		ctx:     context.Background(),
+		started: true,
+		msgChan: make(chan Message),
+		errChan: errChan,
+	}
+	close(errChan)
+
+	ctx, cancel := setupQueryTestContext(t, 100*time.Millisecond)
+	defer cancel()
+
+	msg, err := iter.Next(ctx)
+	if err != ErrNoMoreMessages {
+		t.Fatalf("Expected ErrNoMoreMessages, got msg=%v err=%v", msg, err)
+	}
+	if msg != nil {
+		t.Fatalf("Expected nil message, got %v", msg)
+	}
+}
+
 func TestQueryIteratorReturnsErrorWhenMessageChannelClosed(t *testing.T) {
 	ctx, cancel := setupQueryTestContext(t, 5*time.Second)
 	defer cancel()

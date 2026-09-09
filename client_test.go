@@ -2363,6 +2363,47 @@ func TestClientIteratorNextErrorPaths(t *testing.T) {
 	}
 }
 
+func TestClientIteratorClosedErrorChannelReturnsNoMoreMessages(t *testing.T) {
+	errChan := make(chan error)
+	iter := &clientIterator{
+		msgChan: make(chan Message),
+		errChan: errChan,
+	}
+	close(errChan)
+
+	ctx, cancel := setupClientTestContext(t, 100*time.Millisecond)
+	defer cancel()
+
+	msg, err := iter.Next(ctx)
+	if err != ErrNoMoreMessages {
+		t.Fatalf("Expected ErrNoMoreMessages, got msg=%v err=%v", msg, err)
+	}
+	if msg != nil {
+		t.Fatalf("Expected nil message, got %v", msg)
+	}
+}
+
+func TestClientIteratorClosedStreamErrorChannelReturnsNoMoreMessages(t *testing.T) {
+	streamErrChan := make(chan error)
+	iter := &clientIterator{
+		msgChan:       make(chan Message),
+		errChan:       make(chan error),
+		streamErrChan: streamErrChan,
+	}
+	close(streamErrChan)
+
+	ctx, cancel := setupClientTestContext(t, 100*time.Millisecond)
+	defer cancel()
+
+	msg, err := iter.Next(ctx)
+	if err != ErrNoMoreMessages {
+		t.Fatalf("Expected ErrNoMoreMessages, got msg=%v err=%v", msg, err)
+	}
+	if msg != nil {
+		t.Fatalf("Expected nil message, got %v", msg)
+	}
+}
+
 // Tests for the Query API without variadic parameters.
 
 func TestClientQueryDefaultSession(t *testing.T) {

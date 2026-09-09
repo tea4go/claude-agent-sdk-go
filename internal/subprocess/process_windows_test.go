@@ -4,6 +4,7 @@ package subprocess
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -62,5 +63,12 @@ func TestDurationToWindowsMilliseconds(t *testing.T) {
 				t.Fatalf("durationToWindowsMilliseconds(%s) = %d, want %d", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsProcessAlreadyFinishedErrorTreatsCmdCancelInvalidArgumentAsFinished(t *testing.T) {
+	err := errors.New("exec: canceling Cmd: invalid argument")
+	if !isProcessAlreadyFinishedError(err) {
+		t.Fatalf("expected %q to be treated as an already-finished process error", err)
 	}
 }

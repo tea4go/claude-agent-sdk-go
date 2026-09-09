@@ -7,11 +7,27 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/control"
 	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
+
+type serializedStdinWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func newSerializedStdinWriter(writer io.Writer) *serializedStdinWriter {
+	return &serializedStdinWriter{writer: writer}
+}
+
+func (w *serializedStdinWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
+}
 
 // handleStdout processes stdout in a separate goroutine
 //
@@ -383,6 +399,7 @@ func (t *Transport) setupIoPipes() error {
 		if err != nil {
 			return fmt.Errorf("failed to create stdin pipe: %w", err)
 		}
+		t.stdinWriter = newSerializedStdinWriter(t.stdin)
 	}
 
 	t.stdout, err = t.cmd.StdoutPipe()

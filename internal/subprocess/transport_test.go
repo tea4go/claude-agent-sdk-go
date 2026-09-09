@@ -265,6 +265,63 @@ func TestTransportConcurrency(t *testing.T) {
 	})
 }
 
+func TestTransportSerializesWritesAcrossMessageAndControlPaths(t *testing.T) {
+	writer := &concurrentWriteDetector{
+		enter:   make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+
+	transport := &Transport{
+		connected:  true,
+		stdin:      writer,
+		closeStdin: false,
+	}
+	if err := transport.setupControlProtocol(context.Background()); err != nil {
+		t.Fatalf("setupControlProtocol() error = %v", err)
+	}
+	defer func() {
+		if transport.protocol != nil {
+			_ = transport.protocol.Close()
+		}
+		if transport.protocolAdapter != nil {
+			_ = transport.protocolAdapter.Close()
+		}
+	}()
+
+	message := shared.StreamMessage{Type: "user", SessionID: "serialized"}
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- transport.SendMessage(context.Background(), message)
+	}()
+
+	select {
+	case <-writer.enter:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the first stdin write")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- transport.protocolAdapter.Write(
+			context.Background(),
+			[]byte(`{"type":"control_request","request_id":"req_1","request":{"subtype":"interrupt"}}`+"\n"),
+		)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(writer.release)
+
+	if err := <-firstDone; err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("ProtocolAdapter.Write() error = %v", err)
+	}
+	if writer.maxActiveWrites() != 1 {
+		t.Fatalf("expected stdin writes to be serialized, max concurrent writes = %d", writer.maxActiveWrites())
+	}
+}
+
 // TestTransportReceiveMessagesNotConnected tests ReceiveMessages behavior on disconnected transport
 // This targets the missing 44.4% coverage in ReceiveMessages function
 func TestTransportReceiveMessagesNotConnected(t *testing.T) {
@@ -320,6 +377,45 @@ func TestTransportReceiveMessagesNotConnected(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Error("Expected second message channel to be closed immediately")
 	}
+}
+
+type concurrentWriteDetector struct {
+	mu        sync.Mutex
+	active    int
+	maxActive int
+	enter     chan struct{}
+	release   chan struct{}
+}
+
+func (w *concurrentWriteDetector) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	w.active++
+	if w.active > w.maxActive {
+		w.maxActive = w.active
+	}
+	w.mu.Unlock()
+
+	select {
+	case w.enter <- struct{}{}:
+	default:
+	}
+
+	<-w.release
+
+	w.mu.Lock()
+	w.active--
+	w.mu.Unlock()
+	return len(p), nil
+}
+
+func (w *concurrentWriteDetector) Close() error {
+	return nil
+}
+
+func (w *concurrentWriteDetector) maxActiveWrites() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.maxActive
 }
 
 // Mock transport implementation with functional options

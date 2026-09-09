@@ -38,6 +38,7 @@ func isProcessAlreadyFinishedError(err error) bool {
 	return strings.Contains(errStr, "process already finished") ||
 		strings.Contains(errStr, "process already released") ||
 		strings.Contains(errStr, "no child processes") ||
+		strings.Contains(errStr, "canceling Cmd: invalid argument") ||
 		strings.Contains(errStr, "signal: killed") ||
 		strings.Contains(errStr, "signal: terminated")
 }
@@ -152,6 +153,7 @@ func (t *Transport) cleanup() {
 		_ = t.stdin.Close()
 		t.stdin = nil
 	}
+	t.stdinWriter = nil
 
 	if t.stdout != nil {
 		_ = t.stdout.Close()
