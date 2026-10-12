@@ -11,15 +11,15 @@ import (
 // to send requests via subprocess stdin.
 //
 // Note: The Read() method returns a closed channel because we don't use the
-// protocol's built-in readLoop. Instead, subprocess.Transport routes control
-// messages directly to protocol.HandleIncomingMessage() from handleStdout().
+// protocol's built-in readLoop. Instead, subprocess.Transport dispatches control
+// messages through protocol.DispatchIncomingMessage() from handleStdout().
 //
 // ProtocolAdapter 将子进程的 stdin/stdout 适配给 control.Protocol 使用。
 // 它实现 control.Transport 接口，使控制协议能通过子进程 stdin 发送请求。
 //
 // 注意：Read() 方法返回一个已关闭的通道，因为我们不使用协议内置的
-// readLoop；而是由 subprocess.Transport 在 handleStdout() 中将控制消息
-// 直接路由给 protocol.HandleIncomingMessage()。
+// readLoop；而是由 subprocess.Transport 在 handleStdout() 中通过
+// protocol.DispatchIncomingMessage() 分发控制消息。
 type ProtocolAdapter struct {
 	stdin    io.Writer
 	mu       sync.Mutex
@@ -69,12 +69,12 @@ func (pa *ProtocolAdapter) Write(ctx context.Context, data []byte) error {
 
 // Read returns a channel for reading data from the subprocess.
 // This channel is pre-closed because we don't use the protocol's built-in
-// readLoop - instead, subprocess.Transport routes control messages directly
-// to protocol.HandleIncomingMessage() from handleStdout().
+// readLoop - instead, subprocess.Transport dispatches control messages through
+// protocol.DispatchIncomingMessage() from handleStdout().
 //
 // Read 返回用于从子进程读取数据的通道。该通道预先已关闭，因为我们
 // 不使用协议内置的 readLoop——而是由 subprocess.Transport 在 handleStdout()
-// 中将控制消息直接路由给 protocol.HandleIncomingMessage()。
+// 中通过 protocol.DispatchIncomingMessage() 分发控制消息。
 func (pa *ProtocolAdapter) Read(_ context.Context) <-chan []byte {
 	return pa.readChan
 }

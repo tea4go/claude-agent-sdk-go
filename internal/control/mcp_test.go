@@ -62,6 +62,79 @@ func TestMcpMessageRouting(t *testing.T) {
 	}
 }
 
+// TestMcpRequestsDoNotBlockProtocolReadLoop verifies that a slow in-process
+// MCP tool does not prevent the protocol from receiving and dispatching a
+// later MCP request. Subagents may issue multiple tools concurrently, so the
+// stdout/control reader must never execute user handlers inline.
+func TestMcpRequestsDoNotBlockProtocolReadLoop(t *testing.T) {
+	ctx, cancel := setupMcpTestContext(t, 5*time.Second)
+	defer cancel()
+
+	server := &blockingMcpServer{
+		ready:   make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	transport := newMcpMockTransport()
+	p := NewProtocol(transport, WithSdkMcpServers(map[string]McpServer{"test": server}))
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	transport.readChan <- marshalMcpControlRequest(t, "req_slow", "slow")
+	select {
+	case <-server.ready:
+	case <-time.After(time.Second):
+		t.Fatal("slow MCP tool did not start")
+	}
+
+	transport.readChan <- marshalMcpControlRequest(t, "req_fast", "fast")
+	if !waitForMcpResponse(transport, "req_fast", time.Now().Add(time.Second)) {
+		t.Fatal("fast MCP response was blocked behind slow MCP tool")
+	}
+
+	close(server.release)
+	if !waitForMcpResponse(transport, "req_slow", time.Now().Add(time.Second)) {
+		t.Fatal("slow MCP response was not sent after tool completed")
+	}
+}
+
+func TestProtocolCloseDoesNotWaitForUncooperativeMcpHandler(t *testing.T) {
+	ctx, cancel := setupMcpTestContext(t, 5*time.Second)
+	defer cancel()
+
+	server := &blockingMcpServer{
+		ready:        make(chan struct{}),
+		release:      make(chan struct{}),
+		ignoreCancel: true,
+	}
+	transport := newMcpMockTransport()
+	p := NewProtocol(transport, WithSdkMcpServers(map[string]McpServer{"test": server}))
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	transport.readChan <- marshalMcpControlRequest(t, "req_stuck", "slow")
+	select {
+	case <-server.ready:
+	case <-time.After(time.Second):
+		t.Fatal("stuck MCP tool did not start")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		_ = p.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(200 * time.Millisecond):
+		close(server.release)
+		t.Fatal("Protocol.Close() waited for an MCP handler that ignored cancellation")
+	}
+	close(server.release)
+}
+
 // TestMcpInitializeResponse tests the initialize method response format.
 func TestMcpInitializeResponse(t *testing.T) {
 	ctx, cancel := setupMcpTestContext(t, 5*time.Second)
@@ -606,6 +679,77 @@ type mockMcpServer struct {
 	callResult *McpToolResult
 	callErr    error
 	callPanic  bool
+}
+
+type blockingMcpServer struct {
+	started      sync.Once
+	release      chan struct{}
+	ready        chan struct{}
+	ignoreCancel bool
+}
+
+func (s *blockingMcpServer) Name() string    { return "blocking" }
+func (s *blockingMcpServer) Version() string { return "1.0.0" }
+
+func (s *blockingMcpServer) ListTools(_ context.Context) ([]McpToolDefinition, error) {
+	return nil, nil
+}
+
+func (s *blockingMcpServer) CallTool(ctx context.Context, name string, _ map[string]any) (*McpToolResult, error) {
+	if name == "slow" {
+		s.started.Do(func() { close(s.ready) })
+		if s.ignoreCancel {
+			<-s.release
+		} else {
+			select {
+			case <-s.release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return &McpToolResult{Content: []McpContent{{Type: "text", Text: name}}}, nil
+}
+
+func marshalMcpControlRequest(t *testing.T, requestID, toolName string) []byte {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{
+		"type":       MessageTypeControlRequest,
+		"request_id": requestID,
+		"request": map[string]any{
+			"subtype":     SubtypeMcpMessage,
+			"server_name": "test",
+			"message": map[string]any{
+				"jsonrpc": "2.0",
+				"id":      requestID,
+				"method":  "tools/call",
+				"params": map[string]any{
+					"name":      toolName,
+					"arguments": map[string]any{},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal MCP control request: %v", err)
+	}
+	return data
+}
+
+func waitForMcpResponse(transport *mcpMockTransport, requestID string, deadline time.Time) bool {
+	for time.Now().Before(deadline) {
+		transport.mu.Lock()
+		for _, data := range transport.sentData {
+			var response SDKControlResponse
+			if err := json.Unmarshal(data, &response); err == nil && response.Response.RequestID == requestID {
+				transport.mu.Unlock()
+				return true
+			}
+		}
+		transport.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
 }
 
 func newMockMcpServer(name, version string) *mockMcpServer {

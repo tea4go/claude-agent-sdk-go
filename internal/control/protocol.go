@@ -216,13 +216,50 @@ func (p *Protocol) readLoop() {
 				continue
 			}
 
-			// Route the message
-			if err := p.HandleIncomingMessage(p.ctx, msg); err != nil {
+			// Dispatch the message. SDK MCP handlers may perform slow user-defined
+			// work, so they must not run inline on the sole transport reader.
+			if err := p.DispatchIncomingMessage(p.ctx, msg); err != nil {
 				fmt.Fprintf(os.Stderr, "claude-agent-sdk: failed to route control message: %v\n", err)
 				continue
 			}
 		}
 	}
+}
+
+// DispatchIncomingMessage routes a message received by a transport. SDK MCP
+// requests are handled in independent goroutines so a slow tool cannot block
+// later control responses or other concurrent MCP requests. Other messages
+// retain the synchronous behavior of HandleIncomingMessage.
+//
+// DispatchIncomingMessage 路由 transport 收到的消息。SDK MCP 请求在独立
+// goroutine 中处理，避免慢工具阻塞后续控制响应或其他并发 MCP 请求；其他消息
+// 保持 HandleIncomingMessage 的同步语义。
+func (p *Protocol) DispatchIncomingMessage(ctx context.Context, msg map[string]any) error {
+	if !isMcpControlRequest(msg) {
+		return p.HandleIncomingMessage(ctx, msg)
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	go func() {
+		if err := p.HandleIncomingMessage(ctx, msg); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "claude-agent-sdk: failed to handle MCP control request: %v\n", err)
+		}
+	}()
+	return nil
+}
+
+func isMcpControlRequest(msg map[string]any) bool {
+	if msgType, _ := msg["type"].(string); msgType != MessageTypeControlRequest {
+		return false
+	}
+	request, _ := msg["request"].(map[string]any)
+	subtype, _ := request["subtype"].(string)
+	return subtype == SubtypeMcpMessage
 }
 
 // generateRequestID creates a unique request ID matching Python SDK format.
