@@ -129,6 +129,62 @@ func TestParseValidMessages(t *testing.T) { //nolint:gocyclo
 				if am.ParentToolUseID != nil {
 					t.Errorf("expected ParentToolUseID nil, got %v", am.ParentToolUseID)
 				}
+				if am.Usage != nil {
+					t.Errorf("expected Usage nil when absent, got %v", am.Usage)
+				}
+			},
+		},
+		{
+			name: "assistant_message_with_usage",
+			data: map[string]any{
+				"type": "assistant",
+				"message": map[string]any{
+					"content": []any{map[string]any{"type": "text", "text": "Hi"}},
+					"model":   "claude-3-sonnet",
+					"usage": map[string]any{
+						"input_tokens":                float64(2),
+						"output_tokens":               float64(4),
+						"cache_creation_input_tokens": float64(8778),
+						"cache_read_input_tokens":     float64(9693),
+					},
+				},
+			},
+			expectedType: shared.MessageTypeAssistant,
+			validate: func(t *testing.T, msg shared.Message) {
+				t.Helper()
+				am := msg.(*shared.AssistantMessage)
+				if am.Usage == nil {
+					t.Fatal("expected Usage to be set")
+				}
+				usage := *am.Usage
+				if usage.InputTokens != 2 {
+					t.Errorf("expected input_tokens 2, got %v", usage.InputTokens)
+				}
+				if usage.CacheReadInputTokens != 9693 {
+					t.Errorf("expected cache_read_input_tokens 9693, got %v", usage.CacheReadInputTokens)
+				}
+			},
+		},
+		{
+			// Regression guard: usage lives nested under "message", not at the
+			// top level of the event (unlike ResultMessage). A top-level usage
+			// key must NOT populate the field.
+			name: "assistant_message_with_top_level_usage_ignored",
+			data: map[string]any{
+				"type":  "assistant",
+				"usage": map[string]any{"input_tokens": float64(999)},
+				"message": map[string]any{
+					"content": []any{map[string]any{"type": "text", "text": "Hi"}},
+					"model":   "claude-3-sonnet",
+				},
+			},
+			expectedType: shared.MessageTypeAssistant,
+			validate: func(t *testing.T, msg shared.Message) {
+				t.Helper()
+				am := msg.(*shared.AssistantMessage)
+				if am.Usage != nil {
+					t.Errorf("expected Usage nil when only top-level usage present, got %v", am.Usage)
+				}
 			},
 		},
 		{
@@ -521,20 +577,14 @@ func TestParseUserMessageToolUseResult(t *testing.T) {
 // TestParseErrors tests various error conditions
 func TestParseErrors(t *testing.T) {
 	tests := []struct {
-		name             string
-		data             map[string]any
-		expectError      string
-		expectRawMessage bool
+		name        string
+		data        map[string]any
+		expectError string
 	}{
 		{
 			name:        "missing_type_field",
 			data:        map[string]any{"message": map[string]any{"content": "test"}},
 			expectError: "missing or invalid type field",
-		},
-		{
-			name:             "unknown_message_type",
-			data:             map[string]any{"type": "unknown_type", "content": "test"},
-			expectRawMessage: true,
 		},
 		{
 			name:        "user_message_missing_message_field",
@@ -555,20 +605,7 @@ func TestParseErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			parser := setupParserTest(t)
 
-			msg, err := parser.ParseMessage(test.data)
-			if test.expectRawMessage {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				rm, ok := msg.(*shared.RawMessage)
-				if !ok {
-					t.Fatalf("expected *RawMessage, got %T", msg)
-				}
-				if rm.MessageType != "unknown_type" {
-					t.Errorf("expected MessageType 'unknown_type', got %q", rm.MessageType)
-				}
-				return
-			}
+			_, err := parser.ParseMessage(test.data)
 			assertParseError(t, err, test.expectError)
 		})
 	}
@@ -613,8 +650,28 @@ func TestBufferManagement(t *testing.T) {
 		largeString := strings.Repeat("x", MaxBufferSize+1000)
 
 		_, err := parser.processJSONLine(largeString)
-		assertBufferOverflowError(t, err)
+		assertBufferOverflowError(t, err, MaxBufferSize)
 		assertBufferEmpty(t, parser)
+	})
+
+	// Python test_buffer_size_option: the custom limit applies and is named in the error.
+	t.Run("custom_size_over_limit", func(t *testing.T) {
+		parser := NewWithSize(512)
+		_, err := parser.processJSONLine(`{"data": "` + strings.Repeat("x", 512+10))
+		assertBufferOverflowError(t, err, 512)
+		assertBufferEmpty(t, parser)
+	})
+
+	t.Run("custom_size_equal_to_limit", func(t *testing.T) {
+		line := `{"type":"system","subtype":"status","data":"` + strings.Repeat("x", 100) + `"}`
+		parser := NewWithSize(len(line))
+		msg, err := parser.processJSONLine(line)
+		if err != nil {
+			t.Fatalf("line of exactly the limit: error = %v, want nil", err)
+		}
+		if msg == nil {
+			t.Fatal("line of exactly the limit: got nil message")
+		}
 	})
 
 	t.Run("buffer_reset_on_success", func(t *testing.T) {
@@ -879,24 +936,81 @@ func TestParseRateLimitEventMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("non-allowed status", func(t *testing.T) {
+	t.Run("rejected status with all Python fields", func(t *testing.T) {
 		msg, err := parser.ParseMessage(map[string]any{
 			"type": "rate_limit_event",
 			"rate_limit_info": map[string]any{
-				"status":        "blocked",
-				"resetsAt":      float64(1778600000),
-				"rateLimitType": "five_hour",
+				"status":                "rejected",
+				"resetsAt":              float64(1778600000),
+				"rateLimitType":         "seven_day_opus",
+				"utilization":           0.97,
+				"overageStatus":         "rejected",
+				"overageResetsAt":       float64(1778700000),
+				"overageDisabledReason": "org_disabled",
 			},
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		rl := msg.(*shared.RateLimitEventMessage)
-		if rl.IsAllowed() {
-			t.Error("IsAllowed() = true for status=blocked")
+		rl, ok := msg.(*shared.RateLimitEventMessage)
+		if !ok {
+			t.Fatalf("expected *RateLimitEventMessage, got %T", msg)
+			return
 		}
-		if rl.RateLimitInfo.Status != "blocked" {
-			t.Errorf("Status = %q, want %q", rl.RateLimitInfo.Status, "blocked")
+		info := rl.RateLimitInfo
+		if rl.IsAllowed() {
+			t.Error("IsAllowed() = true for status=rejected")
+		}
+		if info.Status != shared.RateLimitStatusRejected || info.RateLimitType != shared.RateLimitTypeSevenDayOpus {
+			t.Errorf("Status/RateLimitType = %q/%q", info.Status, info.RateLimitType)
+		}
+		if info.Utilization == nil || *info.Utilization != 0.97 {
+			t.Errorf("Utilization = %v, want 0.97", info.Utilization)
+		}
+		if info.OverageStatus != shared.RateLimitStatusRejected || info.OverageResetsAt != 1778700000 {
+			t.Errorf("OverageStatus/OverageResetsAt = %q/%d", info.OverageStatus, info.OverageResetsAt)
+		}
+		if info.OverageDisabledReason != "org_disabled" {
+			t.Errorf("OverageDisabledReason = %q, want org_disabled", info.OverageDisabledReason)
+		}
+	})
+
+	t.Run("absent utilization stays nil", func(t *testing.T) {
+		msg, err := parser.ParseMessage(map[string]any{
+			"type":            "rate_limit_event",
+			"rate_limit_info": map[string]any{"status": shared.RateLimitStatusAllowedWarning},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		rl, ok := msg.(*shared.RateLimitEventMessage)
+		if !ok {
+			t.Fatalf("expected *RateLimitEventMessage, got %T", msg)
+			return
+		}
+		if rl.RateLimitInfo.Utilization != nil {
+			t.Errorf("Utilization = %v, want nil", *rl.RateLimitInfo.Utilization)
+		}
+	})
+
+	t.Run("raw keeps fields that the type does not name", func(t *testing.T) {
+		msg, err := parser.ParseMessage(map[string]any{
+			"type": "rate_limit_event",
+			"rate_limit_info": map[string]any{
+				"status":        "allowed_warning",
+				"rateLimitType": "seven_day",
+				"utilization":   0.82,
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		rl, ok := msg.(*shared.RateLimitEventMessage)
+		if !ok {
+			t.Fatalf("expected *RateLimitEventMessage, got %T", msg)
+		}
+		if rl.RateLimitInfo.Raw["utilization"] != 0.82 {
+			t.Errorf("Raw = %v, want utilization 0.82", rl.RateLimitInfo.Raw)
 		}
 	})
 
@@ -928,26 +1042,6 @@ func TestParseRateLimitEventMessage(t *testing.T) {
 	})
 }
 
-func TestParseAssistantMessagePreservesMessageID(t *testing.T) {
-	parser := setupParserTest(t)
-	data := map[string]any{
-		"type": "assistant",
-		"message": map[string]any{
-			"id":      "msg_usage_snapshot_1",
-			"model":   "claude-sonnet-4-5",
-			"content": []any{map[string]any{"type": "text", "text": "hello"}},
-		},
-	}
-
-	msg, err := parser.ParseMessage(data)
-	assertNoParseError(t, err)
-
-	assistantMsg := msg.(*shared.AssistantMessage)
-	if assistantMsg.ID == nil || *assistantMsg.ID != "msg_usage_snapshot_1" {
-		t.Fatalf("expected assistant message id to be preserved, got %v", assistantMsg.ID)
-	}
-}
-
 // TestParseMessages tests the convenience function
 func TestParseMessages(t *testing.T) {
 	// Test successful parsing
@@ -960,21 +1054,18 @@ func TestParseMessages(t *testing.T) {
 	assertNoParseError(t, err)
 	assertMessageCount(t, messages, 2)
 
-	// Test unknown type produces RawMessage (no error)
-	unknownLines := []string{
+	// Test error handling
+	errorLines := []string{
 		`{"type": "user", "message": {"content": "Valid"}}`,
-		`{"type": "invalid"}`, // Unknown type -> RawMessage, not error
+		`{"type": "user"}`, // missing message field
 	}
 
-	messages, err = ParseMessages(unknownLines)
-	assertNoParseError(t, err)
-	assertMessageCount(t, messages, 2)
-	rm, ok := messages[1].(*shared.RawMessage)
-	if !ok {
-		t.Fatalf("expected *RawMessage for unknown type, got %T", messages[1])
+	_, err = ParseMessages(errorLines)
+	if err == nil {
+		t.Fatal("Expected error for user message without message field")
 	}
-	if rm.MessageType != "invalid" {
-		t.Errorf("expected MessageType 'invalid', got %q", rm.MessageType)
+	if !strings.Contains(err.Error(), "error parsing line 1") {
+		t.Errorf("Expected line number in error, got: %v", err)
 	}
 }
 
@@ -983,10 +1074,9 @@ func TestParseErrorConditions(t *testing.T) {
 	parser := setupParserTest(t)
 
 	tests := []struct {
-		name             string
-		data             map[string]any
-		expectError      string
-		expectRawMessage bool
+		name        string
+		data        map[string]any
+		expectError string
 	}{
 		{
 			name: "user_message_invalid_content_type",
@@ -1040,7 +1130,7 @@ func TestParseErrorConditions(t *testing.T) {
 				"type": "assistant",
 				"message": map[string]any{
 					"content": []any{
-						map[string]any{"type": "unknown_block"},
+						map[string]any{"type": "text"},
 					},
 					"model": "claude-3",
 				},
@@ -1072,10 +1162,9 @@ func TestResultMessageErrorConditions(t *testing.T) {
 	parser := setupParserTest(t)
 
 	tests := []struct {
-		name             string
-		data             map[string]any
-		expectError      string
-		expectRawMessage bool
+		name        string
+		data        map[string]any
+		expectError string
 	}{
 		{
 			name:        "missing_subtype",
@@ -1213,6 +1302,57 @@ func TestResultMessageOptionalFields(t *testing.T) {
 	}
 }
 
+// TestResultMessageStopReason tests that stop_reason keeps nil for absent and null values.
+func TestResultMessageStopReason(t *testing.T) {
+	parser := setupParserTest(t)
+	stopReasonEndTurn := "end_turn"
+
+	tests := []struct {
+		name       string
+		stopReason any
+		present    bool
+		want       *string
+	}{
+		{name: "absent", present: false, want: nil},
+		{name: "end_turn", stopReason: "end_turn", present: true, want: &stopReasonEndTurn},
+		{name: "null", stopReason: nil, present: true, want: nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := map[string]any{
+				"type":            "result",
+				"subtype":         "success",
+				"duration_ms":     100.0,
+				"duration_api_ms": 50.0,
+				"is_error":        false,
+				"num_turns":       1.0,
+				"session_id":      "s123",
+			}
+			if test.present {
+				data["stop_reason"] = test.stopReason
+			}
+
+			msg, err := parser.ParseMessage(data)
+			assertNoParseError(t, err)
+			resultMsg, ok := msg.(*shared.ResultMessage)
+			if !ok {
+				t.Fatalf("Expected *ResultMessage, got %T", msg)
+				return
+			}
+			if test.want == nil {
+				if resultMsg.StopReason != nil {
+					t.Errorf("Expected nil StopReason, got %q", *resultMsg.StopReason)
+				}
+				return
+			}
+			if resultMsg.StopReason == nil || *resultMsg.StopReason != *test.want {
+				t.Errorf("Expected StopReason %q, got %v", *test.want, resultMsg.StopReason)
+			}
+		})
+	}
+}
+
 // TestContentBlockErrorConditions tests uncovered content block parsing paths
 func TestContentBlockErrorConditions(t *testing.T) {
 	parser := setupParserTest(t)
@@ -1236,11 +1376,6 @@ func TestContentBlockErrorConditions(t *testing.T) {
 			name:        "invalid_type_field",
 			blockData:   map[string]any{"type": 123},
 			expectError: "content block missing type field",
-		},
-		{
-			name:        "unknown_block_type",
-			blockData:   map[string]any{"type": "unknown_type"},
-			expectError: "unknown content block type: unknown_type",
 		},
 		{
 			name:        "text_block_missing_text",
@@ -1351,7 +1486,7 @@ func TestProcessLineEdgeCases(t *testing.T) {
 	parser := setupParserTest(t)
 
 	// Test line with content block parse error
-	invalidBlockLine := `{"type": "user", "message": {"content": [{"type": "unknown_block"}]}}`
+	invalidBlockLine := `{"type": "user", "message": {"content": [{"type": "text"}]}}`
 	messages, err := parser.ProcessLine(invalidBlockLine)
 	if err == nil {
 		t.Error("Expected error for invalid content block")
@@ -1360,19 +1495,210 @@ func TestProcessLineEdgeCases(t *testing.T) {
 		t.Errorf("Expected no messages on error, got %d", len(messages))
 	}
 
-	// Test multiple lines with one having an unknown type
-	mixedLine := `{"type": "system", "subtype": "ok"}` + "\n" + `{"type": "invalid"}`
+	// Test multiple lines with one having an error
+	mixedLine := `{"type": "system", "subtype": "ok"}` + "\n" + `{"type": "user"}`
 	messages2, err2 := parser.ProcessLine(mixedLine)
-	if err2 != nil {
-		t.Errorf("Unexpected error: %v", err2)
+	if err2 == nil {
+		t.Error("Expected error for second invalid message")
 	}
-	// Both messages should parse: SystemMessage + RawMessage
-	if len(messages2) != 2 {
-		t.Errorf("Expected 2 messages, got %d", len(messages2))
+	// Should return the first valid message before error
+	if len(messages2) != 1 {
+		t.Errorf("Expected 1 message before error, got %d", len(messages2))
+	}
+}
+
+// TestParseMessagePreservesUnknownType keeps future events inspectable.
+func TestParseMessagePreservesUnknownType(t *testing.T) {
+	parser := setupParserTest(t)
+
+	msg, err := parser.ParseMessage(map[string]any{"type": "future_type", "content": "test"})
+	assertNoParseError(t, err)
+	if _, ok := msg.(*shared.RawMessage); !ok {
+		t.Fatalf("expected RawMessage, got %T", msg)
+	}
+}
+
+// TestProcessLinePreservesUnknownType tests that an unknown line stays in order.
+func TestProcessLinePreservesUnknownType(t *testing.T) {
+	parser := setupParserTest(t)
+
+	input := validSystemStatusJSON + "\n" +
+		`{"type": "future_type", "payload": {"a": 1}}` + "\n" +
+		`{"type": "user", "message": {"content": "hello"}}`
+	messages, err := parser.ProcessLine(input)
+	assertNoParseError(t, err)
+	assertMessageCount(t, messages, 3)
+	assertMessageType(t, messages[0], shared.MessageTypeSystem)
+	assertMessageType(t, messages[1], "future_type")
+	assertMessageType(t, messages[2], shared.MessageTypeUser)
+}
+
+// TestParseSkipsUnknownContentBlock tests that an unknown block is dropped and the known blocks stay.
+func TestParseSkipsUnknownContentBlock(t *testing.T) {
+	content := []any{
+		map[string]any{"type": "text", "text": "before"},
+		map[string]any{"type": "future_block", "data": "x"},
+		map[string]any{"type": "text", "text": "after"},
+	}
+
+	t.Run("assistant", func(t *testing.T) {
+		parser := setupParserTest(t)
+		msg, err := parser.ParseMessage(map[string]any{
+			"type":    "assistant",
+			"message": map[string]any{"model": "claude-test", "content": content},
+		})
+		assertParseSuccess(t, err, msg)
+		assistant, ok := msg.(*shared.AssistantMessage)
+		if !ok {
+			t.Fatalf("Expected *shared.AssistantMessage, got %T", msg)
+			return
+		}
+		assertTextBlocks(t, assistant.Content, "before", "after")
+	})
+
+	t.Run("user", func(t *testing.T) {
+		parser := setupParserTest(t)
+		msg, err := parser.ParseMessage(map[string]any{
+			"type":    "user",
+			"message": map[string]any{"content": content},
+		})
+		assertParseSuccess(t, err, msg)
+		user, ok := msg.(*shared.UserMessage)
+		if !ok {
+			t.Fatalf("Expected *shared.UserMessage, got %T", msg)
+			return
+		}
+		blocks, ok := user.Content.([]shared.ContentBlock)
+		if !ok {
+			t.Fatalf("Expected []shared.ContentBlock, got %T", user.Content)
+			return
+		}
+		assertTextBlocks(t, blocks, "before", "after")
+	})
+}
+
+// TestParseConversationResetMessage tests the conversation_reset message and its required fields.
+func TestParseConversationResetMessage(t *testing.T) {
+	full := map[string]any{
+		"type":                "conversation_reset",
+		"new_conversation_id": "conv-2",
+		"uuid":                "uuid-1",
+		"session_id":          "session-1",
+	}
+
+	parser := setupParserTest(t)
+	msg, err := parser.ParseMessage(full)
+	assertParseSuccess(t, err, msg)
+	reset, ok := msg.(*shared.ConversationResetMessage)
+	if !ok {
+		t.Fatalf("Expected *shared.ConversationResetMessage, got %T", msg)
+		return
+	}
+	assertMessageType(t, reset, shared.MessageTypeConversationReset)
+	if reset.NewConversationID != "conv-2" || reset.UUID != "uuid-1" || reset.SessionID != "session-1" {
+		t.Errorf("Unexpected fields: %+v", reset)
+	}
+
+	for _, field := range []string{"new_conversation_id", "uuid", "session_id"} {
+		t.Run("missing_"+field, func(t *testing.T) {
+			data := make(map[string]any, len(full))
+			for k, v := range full {
+				if k != field {
+					data[k] = v
+				}
+			}
+			_, err := setupParserTest(t).ParseMessage(data)
+			assertParseError(t, err, "conversation_reset message missing "+field+" field")
+		})
+	}
+}
+
+// TestParseServerToolBlocks tests server_tool_use and advisor_tool_result blocks.
+func TestParseServerToolBlocks(t *testing.T) {
+	parser := setupParserTest(t)
+	msg, err := parser.ParseMessage(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"model": "claude-test",
+			"content": []any{
+				map[string]any{
+					"type":  "server_tool_use",
+					"id":    "srvtoolu_1",
+					"name":  "advisor",
+					"input": map[string]any{"question": "q"},
+				},
+				map[string]any{
+					"type":        "advisor_tool_result",
+					"tool_use_id": "srvtoolu_1",
+					"content":     map[string]any{"type": "advisor_result", "text": "a"},
+				},
+			},
+		},
+	})
+	assertParseSuccess(t, err, msg)
+	assistant, ok := msg.(*shared.AssistantMessage)
+	if !ok || len(assistant.Content) != 2 {
+		t.Fatalf("Expected an assistant message with 2 blocks, got %#v", msg)
+		return
+	}
+
+	use, ok := assistant.Content[0].(*shared.ServerToolUseBlock)
+	if !ok {
+		t.Fatalf("Expected *shared.ServerToolUseBlock, got %T", assistant.Content[0])
+		return
+	}
+	if use.BlockType() != shared.ContentBlockTypeServerToolUse || use.ID != "srvtoolu_1" ||
+		use.Name != shared.ServerToolNameAdvisor || use.Input["question"] != "q" {
+		t.Errorf("Unexpected server tool use block: %+v", use)
+	}
+
+	result, ok := assistant.Content[1].(*shared.ServerToolResultBlock)
+	if !ok {
+		t.Fatalf("Expected *shared.ServerToolResultBlock, got %T", assistant.Content[1])
+		return
+	}
+	if result.BlockType() != shared.ContentBlockTypeAdvisorToolResult || result.ToolUseID != "srvtoolu_1" ||
+		result.Content["text"] != "a" {
+		t.Errorf("Unexpected server tool result block: %+v", result)
+	}
+}
+
+// TestParseServerToolBlockErrors tests that a missing required key gives a parse error.
+func TestParseServerToolBlockErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		block       map[string]any
+		expectError string
+	}{
+		{"use_missing_id", map[string]any{"type": "server_tool_use", "name": "advisor", "input": map[string]any{}}, "server_tool_use block missing id field"},
+		{"use_missing_name", map[string]any{"type": "server_tool_use", "id": "s1", "input": map[string]any{}}, "server_tool_use block missing name field"},
+		{"use_missing_input", map[string]any{"type": "server_tool_use", "id": "s1", "name": "advisor"}, "server_tool_use block missing input field"},
+		{"result_missing_tool_use_id", map[string]any{"type": "advisor_tool_result", "content": map[string]any{}}, "advisor_tool_result block missing tool_use_id field"},
+		{"result_missing_content", map[string]any{"type": "advisor_tool_result", "tool_use_id": "s1"}, "advisor_tool_result block missing content field"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := setupParserTest(t).parseContentBlock(test.block)
+			assertParseError(t, err, test.expectError)
+		})
 	}
 }
 
 // Mock and Helper Functions
+
+func assertTextBlocks(t *testing.T, blocks []shared.ContentBlock, want ...string) {
+	t.Helper()
+	if len(blocks) != len(want) {
+		t.Fatalf("Expected %d blocks, got %d: %#v", len(want), len(blocks), blocks)
+	}
+	for i, text := range want {
+		block, ok := blocks[i].(*shared.TextBlock)
+		if !ok || block.Text != text {
+			t.Errorf("Block %d: expected text %q, got %#v", i, text, blocks[i])
+		}
+	}
+}
 
 // setupParserTest creates a new parser for testing
 func setupParserTest(t *testing.T) *Parser {
@@ -1469,7 +1795,7 @@ func assertBufferNotEmpty(t *testing.T, parser *Parser) {
 	}
 }
 
-func assertBufferOverflowError(t *testing.T, err error) {
+func assertBufferOverflowError(t *testing.T, err error, limit int) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("Expected buffer overflow error, got nil")
@@ -1479,8 +1805,9 @@ func assertBufferOverflowError(t *testing.T, err error) {
 		t.Fatalf("Expected JSONDecodeError, got %T", err)
 		return
 	}
-	if !strings.Contains(jsonDecodeErr.Error(), "buffer overflow") {
-		t.Errorf("Expected buffer overflow error, got %q", jsonDecodeErr.Error())
+	want := fmt.Sprintf("JSON message exceeded maximum buffer size of %d bytes", limit)
+	if !strings.Contains(jsonDecodeErr.Error(), want) {
+		t.Errorf("Expected %q in error, got %q", want, jsonDecodeErr.Error())
 	}
 }
 
@@ -2010,10 +2337,9 @@ func TestStreamEventMessageParsing(t *testing.T) {
 // Following established pattern from TestParseErrorConditions
 func TestStreamEventErrorConditions(t *testing.T) {
 	tests := []struct {
-		name             string
-		data             map[string]any
-		expectError      string
-		expectRawMessage bool
+		name        string
+		data        map[string]any
+		expectError string
 	}{
 		{
 			name:        "stream_event_missing_uuid",

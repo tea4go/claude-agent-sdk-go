@@ -40,7 +40,7 @@ go get github.com/tea4go/claude-agent-sdk-go
 ## Key Features
 
 **Two APIs for different needs** - Query for automation, Client for interaction
-**100% Python SDK compatibility** - Same functionality, Go-native design
+**Python SDK parity goal** - Tracks upstream capabilities while keeping Go-native extensions
 **Automatic resource management** - WithClient provides Go-idiomatic context manager pattern
 **Session management** - Isolated conversation contexts with `Query()` and `QueryWithSession()`, plus on-disk session introspection with `ListSessions()`, `GetSessionInfo()`, and `GetSessionMessages()`
 **Skills & slash commands** - Register in-process skills and discover native CLI slash commands
@@ -165,7 +165,12 @@ func main() {
             select {
             case message := <-msgChan:
                 if message == nil {
-                    return nil // Stream ended
+                    // The stream ended. Err says why, or is nil when the
+                    // process exit is not known yet.
+                    if err := client.Err(); err != nil {
+                        return fmt.Errorf("stream ended: %w", err)
+                    }
+                    return nil
                 }
 
                 switch msg := message.(type) {
@@ -337,6 +342,19 @@ claudecode.Query(ctx, prompt,
     claudecode.WithAddDirs("src", "docs"))
 ```
 
+**Settings Sources and CLAUDE.md** (changed in v0.8.0):
+
+By default the CLI loads its settings sources (user, project and local), which include `CLAUDE.md`. This matches the Python SDK. Before v0.8.0, the Go SDK loaded no filesystem settings by default.
+```go
+// Load only the project settings and CLAUDE.md
+claudecode.Query(ctx, prompt,
+    claudecode.WithSettingSources(claudecode.SettingSourceProject))
+
+// Isolation: load no filesystem settings and no CLAUDE.md
+claudecode.Query(ctx, prompt,
+    claudecode.WithSettingSources())
+```
+
 **Session Management** (Client API):
 ```go
 // WithClient provides isolated session contexts
@@ -431,6 +449,8 @@ The SDK includes advanced capabilities for production use:
 - **File Checkpointing** - Track and rewind file changes ([Example 13](examples/13_file_checkpointing/))
 - **SDK MCP Servers** - Create in-process custom tools ([Example 14](examples/14_sdk_mcp_server/))
 - **Stream Diagnostics** - Monitor stream health with `GetStreamIssues()` and `GetStreamStats()`
+- **Process Lifecycle** - `Done()` closes when the CLI process exits and `Err()` says why
+- **Task Lifecycle** - Follow subagents and background tasks with `SystemMessage.AsTaskStarted()`, `AsTaskProgress()`, `AsTaskNotification()` and `AsTaskUpdated()`, and stop a single task with `StopTask()`
 
 See the [examples directory](examples/README.md) for complete documentation.
 

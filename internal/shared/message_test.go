@@ -512,6 +512,48 @@ func strPtr(s string) *string {
 	return &s
 }
 
+// TestAssistantMessageJSONMarshalingWithUsage tests that Usage round-trips
+// through MarshalJSON (which uses the type-alias embedding trick) and is
+// omitted when nil.
+func TestAssistantMessageJSONMarshalingWithUsage(t *testing.T) {
+	asstMsg := &AssistantMessage{
+		Content: []ContentBlock{},
+		Model:   "claude-3-sonnet",
+		Usage:   &Usage{InputTokens: 2, OutputTokens: 4, CacheReadInputTokens: 9693},
+	}
+
+	jsonData, err := json.Marshal(asstMsg)
+	if err != nil {
+		t.Fatalf("Failed to marshal AssistantMessage: %v", err)
+	}
+	assertJSONField(t, jsonData, "type", MessageTypeAssistant)
+
+	var result map[string]any
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+	roundTripped, ok := result["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected usage field to be an object, got %v", result["usage"])
+	}
+	if roundTripped["input_tokens"] != float64(2) {
+		t.Errorf("expected input_tokens 2, got %v", roundTripped["input_tokens"])
+	}
+
+	asstMsgNoOptional := &AssistantMessage{Content: []ContentBlock{}, Model: "claude-3-sonnet"}
+	jsonDataNoOptional, err := json.Marshal(asstMsgNoOptional)
+	if err != nil {
+		t.Fatalf("Failed to marshal AssistantMessage: %v", err)
+	}
+	var resultNoOptional map[string]any
+	if err := json.Unmarshal(jsonDataNoOptional, &resultNoOptional); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+	if _, exists := resultNoOptional["usage"]; exists {
+		t.Error("Expected 'usage' field to be omitted when nil")
+	}
+}
+
 // TestAssistantMessageWithError tests AssistantMessage with the Error field set
 func TestAssistantMessageWithError(t *testing.T) {
 	tests := []struct {

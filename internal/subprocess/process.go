@@ -1,35 +1,14 @@
 package subprocess
 
 import (
-	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"strings"
-	"sync/atomic"
+	"syscall"
 	"time"
 )
 
-var processTerminationGracePeriod = 5 * time.Second
-
-// processTree owns the Claude CLI root process and all ordinary descendants.
-// Implementations must tolerate concurrent forceStop calls from context
-// cancellation and explicit Close.
-//
-// processTree 拥有 Claude CLI 根进程及所有普通子孙进程。
-// 实现必须容忍来自 context 取消与显式 Close 的并发 forceStop 调用。
-type processTree interface {
-	gracefulStop() error
-	forceStop() error
-	wait(time.Duration) bool
-	close() error
-}
-
-// isProcessAlreadyFinishedError checks if an error indicates the process has
-// already terminated. These conditions are successful cleanup outcomes.
-//
-// isProcessAlreadyFinishedError 判断错误是否表示进程已终止；
-// 这些情况均视为成功的清理结果。
+// isProcessAlreadyFinishedError checks if an error indicates the process has already terminated.
+// This follows the Python SDK pattern of suppressing "process not found" type errors.
 func isProcessAlreadyFinishedError(err error) bool {
 	if err == nil {
 		return false
@@ -38,122 +17,92 @@ func isProcessAlreadyFinishedError(err error) bool {
 	return strings.Contains(errStr, "process already finished") ||
 		strings.Contains(errStr, "process already released") ||
 		strings.Contains(errStr, "no child processes") ||
-		strings.Contains(errStr, "canceling Cmd: invalid argument") ||
 		strings.Contains(errStr, "signal: killed") ||
-		strings.Contains(errStr, "signal: terminated")
+		// Windows returns this when TerminateProcess targets an already-exited process.
+		strings.Contains(errStr, "TerminateProcess: Access is denied")
 }
 
-// watchCallerCancellation 监听调用方 context 的取消：一旦取消，则强制停止进程树
-// 并取消进程与 I/O 的 context；收到 stop 信号时退出。
-func (t *Transport) watchCallerCancellation(
-	ctxDone <-chan struct{},
-	stop <-chan struct{},
-	done chan<- struct{},
-	tree processTree,
-	cmd *exec.Cmd,
-	processCancel func(),
-	ioCancel func(),
-) {
-	defer close(done)
-
-	select {
-	case <-ctxDone:
-		atomic.StoreUint32(&t.cancellationRequested, 1)
-		if tree != nil {
-			_ = tree.forceStop()
-		}
-		if processCancel != nil {
-			processCancel()
-		}
-		t.startProcessWaiter(cmd)
-		if ioCancel != nil {
-			ioCancel()
-		}
-	case <-stop:
-	}
+// startProcessWaiter makes one goroutine the sole cmd.Wait caller. Go's
+// exec.Cmd forbids a second Wait, so other code waits on processDone instead
+// (the Go equivalent of Python's idempotent process.wait()).
+func (t *Transport) startProcessWaiter() {
+	exit := &processExit{done: make(chan struct{})}
+	cmd := t.cmd
+	t.processDone = exit.done
+	t.exitMu.Lock()
+	t.exit = exit
+	t.exitMu.Unlock()
+	go func() {
+		waitErr := cmd.Wait()
+		exit.err = exitReason(cmd.ProcessState, waitErr)
+		close(exit.done)
+	}()
 }
 
-// terminateProcess performs one graceful process-tree wait followed by a hard
-// tree kill. Caller-context cancellation and explicit Abort skip the grace period.
-//
-// terminateProcess 先对进程树执行一次优雅等待，随后强制杀死整棵进程树。
-// 调用方 context 取消与显式 Abort 会跳过宽限期。
+// processExit records the exit of one CLI process. err is written once,
+// before done closes, so readers that saw done closed need no lock.
+type processExit struct {
+	done chan struct{}
+	err  error
+}
+
+// terminateProcess runs after stdin is closed (Python close()): wait 5s for
+// a clean exit, SIGTERM, wait 5s, SIGKILL, wait 5s. It uses fixed timers and
+// no ctx, so a cancelled caller still gets every step. It never calls
+// cmd.Wait; startProcessWaiter owns that call. On Windows SIGTERM fails and
+// the sequence goes to Kill (Python: terminate() is TerminateProcess there).
 func (t *Transport) terminateProcess() error {
-	if t.cmd == nil || t.cmd.Process == nil {
+	if t.cmd == nil || t.cmd.Process == nil || t.processDone == nil {
 		return nil
 	}
 
-	waitDone := t.startProcessWaiter(t.cmd)
-	tree := t.processTree
-	var cleanupErr error
+	// stdout EOF alone is not proof of exit; only processDone is.
+	if t.waitProcessDone(processTerminationGracePeriod) {
+		return nil
+	}
 
-	if tree != nil {
-		if atomic.LoadUint32(&t.cancellationRequested) != 0 {
-			if err := tree.forceStop(); err != nil && !isProcessAlreadyFinishedError(err) {
-				cleanupErr = fmt.Errorf("force process tree: %w", err)
-			}
-		} else {
-			if err := tree.gracefulStop(); err != nil && !isProcessAlreadyFinishedError(err) {
-				cleanupErr = fmt.Errorf("gracefully stop process tree: %w", err)
-			}
-			if !tree.wait(processTerminationGracePeriod) {
-				if err := tree.forceStop(); err != nil &&
-					!isProcessAlreadyFinishedError(err) &&
-					cleanupErr == nil {
-					cleanupErr = fmt.Errorf("force process tree after timeout: %w", err)
-				}
-			}
+	var err error
+	if tree := t.currentProcessTree(); tree != nil {
+		err = tree.gracefulStop()
+	} else {
+		err = t.cmd.Process.Signal(syscall.SIGTERM)
+	}
+	if err == nil || isProcessAlreadyFinishedError(err) {
+		if t.waitProcessDone(processTerminationGracePeriod) {
+			return nil
 		}
 	}
 
-	if t.processCancel != nil {
-		t.processCancel()
+	var killErr error
+	if tree := t.currentProcessTree(); tree != nil {
+		killErr = tree.forceStop()
+	} else {
+		killErr = t.cmd.Process.Kill()
 	}
-
-	<-waitDone
-	waitErr := t.processWaitErr
-	if waitErr != nil &&
-		!isProcessAlreadyFinishedError(waitErr) &&
-		!strings.Contains(waitErr.Error(), "signal:") &&
-		cleanupErr == nil {
-		var exitErr *exec.ExitError
-		if !errors.As(waitErr, &exitErr) {
-			cleanupErr = fmt.Errorf("wait for Claude CLI process: %w", waitErr)
-		}
+	if killErr != nil && !isProcessAlreadyFinishedError(killErr) {
+		return killErr
 	}
-
-	if tree != nil {
-		if err := tree.close(); err != nil &&
-			!isProcessAlreadyFinishedError(err) &&
-			cleanupErr == nil {
-			cleanupErr = fmt.Errorf("release process tree: %w", err)
-		}
-	}
-
-	return cleanupErr
+	// Bounded: startProcessWaiter still reaps the process if this times out.
+	t.waitProcessDone(processTerminationGracePeriod)
+	return nil
 }
 
-// startProcessWaiter 以 sync.Once 保证仅启动一个后台 goroutine 回收进程（cmd.Wait），
-// 并返回用于等待完成的通道。
-func (t *Transport) startProcessWaiter(cmd *exec.Cmd) <-chan struct{} {
-	t.processWaitOnce.Do(func() {
-		go func() {
-			t.processWaitErr = cmd.Wait()
-			close(t.processWaitDone)
-		}()
-	})
-	return t.processWaitDone
+// waitProcessDone waits up to d for the process to exit and reports whether it did.
+func (t *Transport) waitProcessDone(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-t.processDone:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
-// cleanup releases pipes, temporary files, and platform process handles.
-//
-// cleanup 释放管道、临时文件与平台进程句柄。
+// cleanup cleans up all resources
 func (t *Transport) cleanup() {
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-		t.stdin = nil
-	}
-	t.stdinWriter = nil
+	t.cleanupSkillRegistryDirs()
+	t.closeChildPipeEnds()
 
 	if t.stdout != nil {
 		_ = t.stdout.Close()
@@ -166,38 +115,24 @@ func (t *Transport) cleanup() {
 	}
 
 	if t.stderr != nil {
+		// Graceful cleanup matching Python SDK pattern
+		// Python: except Exception: pass
 		_ = t.stderr.Close()
-		_ = os.Remove(t.stderr.Name())
+		_ = os.Remove(t.stderr.Name()) // Ignore cleanup errors
 		t.stderr = nil
 	}
 
 	if t.mcpConfigFile != nil {
+		// Clean up temporary MCP config file
 		_ = t.mcpConfigFile.Close()
-		_ = os.Remove(t.mcpConfigFile.Name())
+		_ = os.Remove(t.mcpConfigFile.Name()) // Ignore cleanup errors
 		t.mcpConfigFile = nil
 	}
 
-	t.cleanupSkillRegistryDirs()
-
-	if t.processTree != nil {
-		_ = t.processTree.close()
-		t.processTree = nil
-	}
-	if t.processCancel != nil {
-		t.processCancel()
-		t.processCancel = nil
-	}
-
+	// Reset state
 	t.cmd = nil
-	t.watcherDone = nil
-	t.processWaitDone = nil
-	t.processWaitErr = nil
-}
-
-// cleanupSkillRegistryDirs 删除为外部 Skill 注册表生成的临时插件包装器目录。
-func (t *Transport) cleanupSkillRegistryDirs() {
-	for _, dir := range t.skillRegistryDirs {
-		_ = os.RemoveAll(dir)
-	}
-	t.skillRegistryDirs = nil
+	t.processDone = nil
+	t.exitMu.Lock()
+	t.exit = nil
+	t.exitMu.Unlock()
 }

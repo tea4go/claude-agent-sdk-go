@@ -18,6 +18,8 @@ shared/
 ├── errors.go              # CLINotFoundError, ConnectionError, etc.
 ├── errors_test.go         # Error type tests
 ├── errors_helpers_test.go # Error helper tests
+├── agent.go               # AgentDefinition, AgentEffort, AgentMcpServer, ValidateAgents
+├── agent_test.go          # Agent definition and validation tests
 ├── options.go             # Options struct, functional options
 ├── options_test.go        # Options tests
 ├── stream.go              # StreamIssue, StreamStats
@@ -29,7 +31,7 @@ shared/
 - `Message` interface: `Type() string`
 - `ContentBlock` interface: `BlockType() string`
 - Concrete types: `UserMessage`, `AssistantMessage`, `SystemMessage`, `ResultMessage`
-- Content blocks: `TextBlock`, `ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`
+- Content blocks: `TextBlock`, `ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`, `ServerToolUseBlock`, `ServerToolResultBlock`
 
 **UserMessage fields**:
 - `Content`: string or `[]ContentBlock`
@@ -40,6 +42,9 @@ shared/
 - `Error *AssistantMessageError`: typed string parsed from top-level `data["error"]` (not nested `data["message"]["error"]`)
 - Python SDK parity constants (all six values from `types.py` `AssistantMessageError` Literal): `AssistantMessageErrorAuthFailed="authentication_failed"`, `AssistantMessageErrorBilling="billing_error"`, `AssistantMessageErrorRateLimit="rate_limit"`, `AssistantMessageErrorInvalidRequest="invalid_request"`, `AssistantMessageErrorServer="server_error"`, `AssistantMessageErrorUnknown="unknown"`
 - Helper methods: `HasError()`, `GetError()`, `IsRateLimited()`
+
+**StreamMessage wire shape**:
+- `StreamMessage.SessionID` and `StreamMessage.ParentToolUseID` intentionally lack `omitempty`; both fields are always emitted (`"session_id":""` and `"parent_tool_use_id":null` when unset), matching the Python and TypeScript SDK wire shape
 
 <!-- END AUTO-MANAGED -->
 

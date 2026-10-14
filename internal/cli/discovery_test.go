@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
@@ -40,44 +42,86 @@ func TestCLIDiscovery(t *testing.T) {
 	}
 }
 
-// TestCommandBuilding tests CLI command construction with various options
+// TestCommandBuilding tests CLI command construction with various options.
+// Streaming mode is unconditional, so commands always carry
+// --input-format stream-json and never --print.
 func TestCommandBuilding(t *testing.T) {
 	tests := []struct {
-		name       string
-		cliPath    string
-		options    *shared.Options
-		closeStdin bool
-		validate   func(*testing.T, []string)
+		name     string
+		cliPath  string
+		options  *shared.Options
+		validate func(*testing.T, []string)
 	}{
 		{
-			name:       "basic_oneshot_command",
-			cliPath:    "/usr/local/bin/claude",
-			options:    &shared.Options{},
-			closeStdin: true,
-			validate:   validateOneshotCommand,
+			name:     "basic_streaming_command",
+			cliPath:  "/usr/local/bin/claude",
+			options:  &shared.Options{},
+			validate: validateStreamingCommand,
 		},
 		{
-			name:       "basic_streaming_command",
-			cliPath:    "/usr/local/bin/claude",
-			options:    &shared.Options{},
-			closeStdin: false,
-			validate:   validateStreamingCommand,
+			name:     "nil_options_streaming_command",
+			cliPath:  "/usr/local/bin/claude",
+			options:  nil,
+			validate: validateStreamingCommand,
 		},
 		{
-			name:       "all_options_command",
-			cliPath:    "/usr/local/bin/claude",
-			options:    createFullOptionsSet(),
-			closeStdin: false,
-			validate:   validateFullOptionsCommand,
+			name:     "all_options_command",
+			cliPath:  "/usr/local/bin/claude",
+			options:  createFullOptionsSet(),
+			validate: validateFullOptionsCommand,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand(test.cliPath, test.options, test.closeStdin)
+			cmd := BuildCommand(test.cliPath, test.options)
 			test.validate(t, cmd)
 		})
 	}
+}
+
+// TestBuildCommandAlwaysUsesStreamJSON pins that every constructed command
+// uses --input-format stream-json and never --print.
+func TestBuildCommandAlwaysUsesStreamJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		options *shared.Options
+	}{
+		{"nil_options", nil},
+		{"empty_options", &shared.Options{}},
+		{"with_model", &shared.Options{Model: stringPtr("claude-sonnet-4-5")}},
+		{"with_extra_args", &shared.Options{ExtraArgs: map[string]*string{"debug": nil}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
+			assertContainsArgs(t, cmd, "--input-format", "stream-json")
+			assertNotContainsArg(t, cmd, "--print")
+		})
+	}
+}
+
+// TestBuildCommandNeverEmitsAgentsFlag pins that agents travel via the
+// initialize control request, not the --agents CLI flag.
+func TestBuildCommandNeverEmitsAgentsFlag(t *testing.T) {
+	options := &shared.Options{
+		Agents: map[string]shared.AgentDefinition{
+			"reviewer": {
+				Description: "Reviews code",
+				Prompt:      "You are a code reviewer.",
+				Tools:       []string{"Read", "Grep"},
+				Model:       shared.AgentModelSonnet,
+			},
+			"tester": {
+				Description: "Writes tests",
+				Prompt:      "You are a test author.",
+			},
+		},
+	}
+
+	cmd := BuildCommand("/usr/local/bin/claude", options)
+
+	assertNotContainsArg(t, cmd, "--agents")
 }
 
 // TestCwdNotAddedToCommand tests that WithCwd() doesn't add --cwd flag
@@ -87,7 +131,7 @@ func TestCwdNotAddedToCommand(t *testing.T) {
 		Cwd: &cwd,
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, false)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Verify --cwd flag is NOT in the command
 	assertNotContainsArg(t, cmd, "--cwd")
@@ -104,12 +148,119 @@ func TestCwdNotAddedToCommand(t *testing.T) {
 func TestEffortFlagSupport(t *testing.T) {
 	effort := "high"
 	options := &shared.Options{Effort: &effort}
-	cmd := BuildCommand("/usr/local/bin/claude", options, false)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 	assertContainsArgs(t, cmd, "--effort", "high")
 
 	// When Effort is unset, no --effort flag should be emitted.
-	cmd = BuildCommand("/usr/local/bin/claude", &shared.Options{}, false)
+	cmd = BuildCommand("/usr/local/bin/claude", &shared.Options{})
 	assertNotContainsArg(t, cmd, "--effort")
+}
+
+// TestThinkingFlagSupport tests the CLI flags for Thinking and MaxThinkingTokens.
+func TestThinkingFlagSupport(t *testing.T) {
+	tests := []struct {
+		name     string
+		options  *shared.Options
+		want     [][2]string
+		notWants []string
+	}{
+		{
+			name:     "no thinking options emit no flags",
+			options:  &shared.Options{},
+			notWants: []string{"--thinking", "--max-thinking-tokens", "--thinking-display"},
+		},
+		{
+			name:     "max thinking tokens",
+			options:  &shared.Options{MaxThinkingTokens: 5000},
+			want:     [][2]string{{"--max-thinking-tokens", "5000"}},
+			notWants: []string{"--thinking"},
+		},
+		{
+			name:     "adaptive",
+			options:  &shared.Options{Thinking: shared.ThinkingConfigAdaptive{}},
+			want:     [][2]string{{"--thinking", "adaptive"}},
+			notWants: []string{"--max-thinking-tokens", "--thinking-display"},
+		},
+		{
+			name:     "adaptive pointer",
+			options:  &shared.Options{Thinking: &shared.ThinkingConfigAdaptive{}},
+			want:     [][2]string{{"--thinking", "adaptive"}},
+			notWants: []string{"--max-thinking-tokens"},
+		},
+		{
+			name:     "enabled",
+			options:  &shared.Options{Thinking: shared.ThinkingConfigEnabled{BudgetTokens: 2000}},
+			want:     [][2]string{{"--max-thinking-tokens", "2000"}},
+			notWants: []string{"--thinking", "--thinking-display"},
+		},
+		{
+			name:     "disabled",
+			options:  &shared.Options{Thinking: shared.ThinkingConfigDisabled{}},
+			want:     [][2]string{{"--thinking", "disabled"}},
+			notWants: []string{"--max-thinking-tokens", "--thinking-display"},
+		},
+		{
+			name: "adaptive with display",
+			options: &shared.Options{Thinking: shared.ThinkingConfigAdaptive{
+				Display: shared.ThinkingDisplaySummarized,
+			}},
+			want: [][2]string{{"--thinking", "adaptive"}, {"--thinking-display", "summarized"}},
+		},
+		{
+			name: "enabled with display",
+			options: &shared.Options{Thinking: shared.ThinkingConfigEnabled{
+				BudgetTokens: 2000,
+				Display:      shared.ThinkingDisplayOmitted,
+			}},
+			want: [][2]string{{"--max-thinking-tokens", "2000"}, {"--thinking-display", "omitted"}},
+		},
+		{
+			name: "thinking takes precedence over max thinking tokens",
+			options: &shared.Options{
+				MaxThinkingTokens: 9000,
+				Thinking:          shared.ThinkingConfigEnabled{BudgetTokens: 2000},
+			},
+			want:     [][2]string{{"--max-thinking-tokens", "2000"}},
+			notWants: []string{"9000"},
+		},
+		{
+			name:     "typed nil adaptive is treated as unset",
+			options:  &shared.Options{Thinking: (*shared.ThinkingConfigAdaptive)(nil), MaxThinkingTokens: 3000},
+			want:     [][2]string{{"--max-thinking-tokens", "3000"}},
+			notWants: []string{"--thinking"},
+		},
+		{
+			name:     "typed nil enabled is treated as unset",
+			options:  &shared.Options{Thinking: (*shared.ThinkingConfigEnabled)(nil)},
+			notWants: []string{"--thinking", "--max-thinking-tokens"},
+		},
+		{
+			name:     "typed nil disabled is treated as unset",
+			options:  &shared.Options{Thinking: (*shared.ThinkingConfigDisabled)(nil)},
+			notWants: []string{"--thinking", "--max-thinking-tokens"},
+		},
+		{
+			name: "disabled takes precedence over max thinking tokens",
+			options: &shared.Options{
+				MaxThinkingTokens: 9000,
+				Thinking:          shared.ThinkingConfigDisabled{},
+			},
+			want:     [][2]string{{"--thinking", "disabled"}},
+			notWants: []string{"--max-thinking-tokens"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
+			for _, pair := range test.want {
+				assertContainsArgs(t, cmd, pair[0], pair[1])
+			}
+			for _, arg := range test.notWants {
+				assertNotContainsArg(t, cmd, arg)
+			}
+		})
+	}
 }
 
 // TestCLIDiscoveryLocations tests CLI discovery path generation
@@ -143,12 +294,22 @@ func TestExtraArgsSupport(t *testing.T) {
 			extraArgs: map[string]*string{"log-level": &[]string{"info"}[0]},
 			validate:  validateValueExtraArgs,
 		},
+		{
+			name:      "dash_leading_value_uses_equals_form",
+			extraArgs: map[string]*string{"debug": &[]string{"--version"}[0]},
+			validate:  validateDashValueExtraArgs,
+		},
+		{
+			name:      "single_dash_value_uses_equals_form",
+			extraArgs: map[string]*string{"log-file": &[]string{"-"}[0]},
+			validate:  validateSingleDashExtraArgs,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			options := &shared.Options{ExtraArgs: test.extraArgs}
-			cmd := BuildCommand("/usr/local/bin/claude", options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", options)
 			test.validate(t, cmd)
 		})
 	}
@@ -186,38 +347,8 @@ func TestBetasFlagSupport(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			options := &shared.Options{Betas: test.betas}
-			cmd := BuildCommand("/usr/local/bin/claude", options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", options)
 			test.validate(t, cmd)
-		})
-	}
-}
-
-// TestBuildCommandWithPrompt tests CLI command construction with prompt argument
-func TestBuildCommandWithPrompt(t *testing.T) {
-	tests := []struct {
-		name     string
-		options  *shared.Options
-		prompt   string
-		validate func(*testing.T, []string, string)
-	}{
-		{"basic_prompt", &shared.Options{}, "What is 2+2?", validateBasicPromptCommand},
-		{"empty_prompt", nil, "", validateEmptyPromptCommand},
-		{"multiline_prompt", &shared.Options{Model: stringPtr("claude-3-sonnet")}, "Line 1\nLine 2", validateBasicPromptCommand},
-		{
-			"prompt_after_options",
-			&shared.Options{
-				ExtraArgs: map[string]*string{"mcp-config": stringPtr("/tmp/mcp.json")},
-				Model:     stringPtr("claude-3-sonnet"),
-			},
-			"Use get_server_time tool",
-			validatePromptAfterOptions,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommandWithPrompt("/usr/local/bin/claude", test.options, test.prompt)
-			test.validate(t, cmd, test.prompt)
 		})
 	}
 }
@@ -351,20 +482,20 @@ func assertPlatformSpecificPaths(t *testing.T, locations []string) {
 	if err != nil {
 		homeDir = "."
 	}
-	expectedNpmGlobal := filepath.Join(homeDir, ".npm-global", "bin", "claude")
+	expected := filepath.Join(homeDir, ".npm-global", "bin", "claude")
 	if runtime.GOOS == windowsOS {
-		expectedNpmGlobal = filepath.Join(homeDir, ".npm-global", "claude.cmd")
+		expected = filepath.Join(homeDir, ".local", "bin", "claude.exe")
 	}
 
 	found := false
 	for _, location := range locations {
-		if location == expectedNpmGlobal {
+		if location == expected {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected npm-global location %s in discovery paths", expectedNpmGlobal)
+		t.Errorf("Expected location %s in discovery paths", expected)
 	}
 }
 
@@ -394,14 +525,6 @@ func assertValidationError(t *testing.T, err error, expectError bool, errorConta
 
 // Command validation helpers
 
-func validateOneshotCommand(t *testing.T, cmd []string) {
-	t.Helper()
-	assertContainsArgs(t, cmd, "--output-format", "stream-json")
-	assertContainsArg(t, cmd, "--verbose")
-	assertContainsArg(t, cmd, "--print")
-	assertNotContainsArgs(t, cmd, "--input-format", "stream-json")
-}
-
 func validateStreamingCommand(t *testing.T, cmd []string) {
 	t.Helper()
 	assertContainsArgs(t, cmd, "--output-format", "stream-json")
@@ -417,7 +540,7 @@ func validateFullOptionsCommand(t *testing.T, cmd []string) {
 	assertContainsArgs(t, cmd, "--system-prompt", "You are a helpful assistant")
 	assertContainsArgs(t, cmd, "--model", "claude-3-sonnet")
 	assertContainsArg(t, cmd, "--continue")
-	assertContainsArgs(t, cmd, "--resume", "session123")
+	assertContainsArg(t, cmd, "--resume=session123")
 	assertContainsArg(t, cmd, "--custom-flag")
 	assertContainsArgs(t, cmd, "--with-value", "test")
 }
@@ -431,6 +554,19 @@ func validateBooleanExtraArgs(t *testing.T, cmd []string) {
 func validateValueExtraArgs(t *testing.T, cmd []string) {
 	t.Helper()
 	assertContainsArgs(t, cmd, "--log-level", "info")
+}
+
+func validateDashValueExtraArgs(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--debug=--version")
+	assertNotContainsArg(t, cmd, "--version")
+	assertNotContainsArg(t, cmd, "--debug")
+}
+
+func validateSingleDashExtraArgs(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--log-file=-")
+	assertNotContainsArg(t, cmd, "-")
 }
 
 func validateSingleBetaFlag(t *testing.T, cmd []string) {
@@ -480,77 +616,21 @@ func assertContainsArgs(t *testing.T, args []string, flag, value string) {
 	t.Errorf("Expected command to contain %s %s, got %v", flag, value, args)
 }
 
-func assertNotContainsArgs(t *testing.T, args []string, flag, value string) {
-	t.Helper()
-	for i, arg := range args {
-		if arg == flag && i+1 < len(args) && args[i+1] == value {
-			t.Errorf("Expected command to not contain %s %s, got %v", flag, value, args)
-			return
-		}
-	}
-}
-
-// Validation functions for BuildCommandWithPrompt tests
-
-func validateBasicPromptCommand(t *testing.T, cmd []string, prompt string) {
-	t.Helper()
-	assertContainsArgs(t, cmd, "--output-format", "stream-json")
-	assertContainsArg(t, cmd, "--verbose")
-	assertContainsArgs(t, cmd, "--print", prompt)
-}
-
-func validateEmptyPromptCommand(t *testing.T, cmd []string, _ string) {
-	t.Helper()
-	assertContainsArgs(t, cmd, "--output-format", "stream-json")
-	assertContainsArg(t, cmd, "--verbose")
-	assertContainsArgs(t, cmd, "--print", "") // Empty prompt should still be there
-}
-
-func validatePromptAfterOptions(t *testing.T, cmd []string, prompt string) {
-	t.Helper()
-	assertContainsArgs(t, cmd, "--print", prompt)
-	assertContainsArgs(t, cmd, "--mcp-config", "/tmp/mcp.json")
-	assertContainsArgs(t, cmd, "--model", "claude-3-sonnet")
-
-	// --print must come AFTER all option flags so the CLI parses them correctly
-	printIdx := -1
-	mcpIdx := -1
-	modelIdx := -1
-	for i, arg := range cmd {
-		switch arg {
-		case "--print":
-			printIdx = i
-		case "--mcp-config":
-			mcpIdx = i
-		case "--model":
-			modelIdx = i
-		}
-	}
-
-	if mcpIdx > printIdx {
-		t.Errorf("--mcp-config (index %d) must appear before --print (index %d), got %v", mcpIdx, printIdx, cmd)
-	}
-	if modelIdx > printIdx {
-		t.Errorf("--model (index %d) must appear before --print (index %d), got %v", modelIdx, printIdx, cmd)
-	}
-}
-
-// Helper function for string pointers
 // TestFindCLISuccess tests successful CLI discovery paths
 func TestFindCLISuccess(t *testing.T) {
 	// Test when CLI is found in PATH
 	t.Run("cli_found_in_path", func(t *testing.T) {
-		// Create a temporary executable file
+		// FindCLI only checks file existence + executability; it never
+		// invokes the binary. A minimal executable placeholder is enough,
+		// no shell-script body required.
 		tempDir := t.TempDir()
 		cliPath := filepath.Join(tempDir, "claude")
 		if runtime.GOOS == windowsOS {
 			cliPath += ".exe"
 		}
 
-		// Create and make executable
-		//nolint:gosec // G306: Test file needs execute permission for mock CLI binary
-		err := os.WriteFile(cliPath, []byte("#!/bin/bash\necho test"), 0o700)
-		if err != nil {
+		//nolint:gosec // G306: Test file needs execute permission for mock CLI binary.
+		if err := os.WriteFile(cliPath, []byte{0}, 0o700); err != nil {
 			t.Fatalf("Failed to create test CLI: %v", err)
 		}
 
@@ -625,25 +705,11 @@ func TestGetCommonCLILocationsPlatforms(t *testing.T) {
 	if runtime.GOOS == windowsOS {
 		t.Run("windows_paths", func(t *testing.T) {
 			locations := getCommonCLILocations()
-
-			// Check for Windows-specific patterns
-			foundAppData := false
-			foundProgramFiles := false
-
 			for _, location := range locations {
-				if strings.Contains(location, "AppData") && strings.HasSuffix(location, ".cmd") {
-					foundAppData = true
+				// Batch shims run through cmd.exe, so discovery offers only native executables (Python #1127).
+				if !isWindowsNativeExe(location) {
+					t.Errorf("Windows location %q is not a native executable", location)
 				}
-				if strings.Contains(location, "Program Files") && strings.HasSuffix(location, ".cmd") {
-					foundProgramFiles = true
-				}
-			}
-
-			if !foundAppData {
-				t.Error("Expected Windows AppData path with .cmd extension")
-			}
-			if !foundProgramFiles {
-				t.Error("Expected Program Files path with .cmd extension")
 			}
 		})
 	}
@@ -738,7 +804,7 @@ func TestAddPermissionFlagsComplete(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, false)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 
 			for flag, expectedValue := range test.expect {
 				assertContainsArgs(t, cmd, flag, expectedValue)
@@ -822,7 +888,7 @@ func TestToolsFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -898,6 +964,16 @@ func TestSessionManagementFlagsSupport(t *testing.T) {
 			validate: validateSettingSourcesAll,
 		},
 		{
+			name:     "setting_sources_nil",
+			options:  &shared.Options{},
+			validate: validateSettingSourcesNil,
+		},
+		{
+			name:     "setting_sources_nil_from_new_options",
+			options:  shared.NewOptions(),
+			validate: validateSettingSourcesNil,
+		},
+		{
 			name:     "setting_sources_empty",
 			options:  &shared.Options{SettingSources: []shared.SettingSource{}},
 			validate: validateSettingSourcesEmpty,
@@ -911,11 +987,43 @@ func TestSessionManagementFlagsSupport(t *testing.T) {
 			},
 			validate: validateForkSessionWithResume,
 		},
+		{
+			// Python test_build_command_resume_session_at_and_drops_turn (#1198).
+			name: "resume_session_at_and_drops_turn",
+			options: &shared.Options{
+				Resume:          stringPtr("abc123"),
+				ForkSession:     true,
+				ResumeSessionAt: stringPtr(testResumeAtUUID),
+				ResumeDropsTurn: stringPtr(testDropsTurnUUID),
+			},
+			validate: validateResumeSessionAtAndDropsTurn,
+		},
+		{
+			name:     "resume_drops_turn_omitted_by_default",
+			options:  &shared.Options{Resume: stringPtr("abc123"), ResumeSessionAt: stringPtr("x")},
+			validate: validateResumeDropsTurnOmitted,
+		},
+		{
+			// An empty declaration reaches the CLI, which rejects it, so the guard is never silently off.
+			name:     "empty_resume_drops_turn_forwarded",
+			options:  &shared.Options{Resume: stringPtr("abc123"), ResumeSessionAt: stringPtr("x"), ResumeDropsTurn: stringPtr("")},
+			validate: validateEmptyResumeDropsTurn,
+		},
+		{
+			name:     "empty_resume_session_at_omitted",
+			options:  &shared.Options{Resume: stringPtr("abc123"), ResumeSessionAt: stringPtr("")},
+			validate: validateResumeSessionAtOmitted,
+		},
+		{
+			name:     "resume_value_starting_with_dash",
+			options:  &shared.Options{Resume: stringPtr("--version")},
+			validate: validateResumeDashValue,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -933,29 +1041,91 @@ func validateForkSessionDisabled(t *testing.T, cmd []string) {
 
 func validateSettingSourcesSingle(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "user")
+	assertContainsArg(t, cmd, "--setting-sources=user")
 }
 
 func validateSettingSourcesMultiple(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "user,project")
+	assertContainsArg(t, cmd, "--setting-sources=user,project")
 }
 
 func validateSettingSourcesAll(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "user,project,local")
+	assertContainsArg(t, cmd, "--setting-sources=user,project,local")
 }
 
+// An empty list must reach the CLI as one token so it means "no sources" (Python #822).
 func validateSettingSourcesEmpty(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "")
+	assertContainsArg(t, cmd, "--setting-sources=")
+	assertNotContainsArg(t, cmd, "--setting-sources")
+}
+
+// Nil keeps the CLI defaults, so no flag is sent (Python #822).
+func validateSettingSourcesNil(t *testing.T, cmd []string) {
+	t.Helper()
+	assertNoSettingSourcesFlag(t, cmd)
+}
+
+func assertNoSettingSourcesFlag(t *testing.T, cmd []string) {
+	t.Helper()
+	assertNoArgWithPrefix(t, cmd, "--setting-sources")
 }
 
 func validateForkSessionWithResume(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--resume", "session-123")
+	assertContainsArg(t, cmd, "--resume=session-123")
 	assertContainsArg(t, cmd, "--fork-session")
-	assertContainsArgs(t, cmd, "--setting-sources", "user")
+	assertContainsArg(t, cmd, "--setting-sources=user")
+}
+
+const (
+	testResumeAtUUID  = "0d78eb23-2d48-4741-b970-4ed0a3356cce"
+	testDropsTurnUUID = "ce0a8011-2c8d-40f2-86e5-d6e1b0c041c0"
+)
+
+func validateResumeSessionAtAndDropsTurn(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--resume-session-at="+testResumeAtUUID)
+	assertContainsArg(t, cmd, "--resume-drops-turn="+testDropsTurnUUID)
+	assertNotContainsArg(t, cmd, "--resume-session-at")
+	assertNotContainsArg(t, cmd, "--resume-drops-turn")
+	assertNotContainsArg(t, cmd, testResumeAtUUID)
+	assertNotContainsArg(t, cmd, testDropsTurnUUID)
+}
+
+func validateResumeDropsTurnOmitted(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--resume-session-at=x")
+	assertNoArgWithPrefix(t, cmd, "--resume-drops-turn")
+}
+
+func validateEmptyResumeDropsTurn(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--resume-drops-turn=")
+}
+
+// Python sends --resume-session-at only for a truthy value.
+func validateResumeSessionAtOmitted(t *testing.T, cmd []string) {
+	t.Helper()
+	assertNoArgWithPrefix(t, cmd, "--resume-session-at")
+}
+
+func assertNoArgWithPrefix(t *testing.T, cmd []string, prefix string) {
+	t.Helper()
+	for _, arg := range cmd {
+		if strings.HasPrefix(arg, prefix) {
+			t.Errorf("Expected no %s argument, got %q in %v", prefix, arg, cmd)
+		}
+	}
+}
+
+// A dash-leading resume value must stay bound to --resume, not parse as its own flag (Python #1123).
+func validateResumeDashValue(t *testing.T, cmd []string) {
+	t.Helper()
+	assertContainsArg(t, cmd, "--resume=--version")
+	assertNotContainsArg(t, cmd, "--resume")
+	assertNotContainsArg(t, cmd, "--version")
 }
 
 // TestPluginsFlagSupport tests --plugin-dir CLI flag generation
@@ -1003,7 +1173,7 @@ func TestPluginsFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -1078,7 +1248,7 @@ func TestSandboxFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -1095,7 +1265,7 @@ func TestPluginsWithOtherFlags(t *testing.T) {
 		SettingSources: []shared.SettingSource{},
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, true)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Verify plugin flag is present
 	assertContainsArgs(t, cmd, "--plugin-dir", "/my/plugin")
@@ -1116,7 +1286,7 @@ func TestPluginsOrderPreserved(t *testing.T) {
 		SettingSources: []shared.SettingSource{},
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, true)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Find all --plugin-dir flags and verify order
 	var pluginPaths []string
@@ -1255,7 +1425,7 @@ func TestSandboxWithExistingSettings(t *testing.T) {
 		SettingSources: []shared.SettingSource{},
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, true)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Count --settings flags - must be exactly 1
 	settingsCount := 0
@@ -1351,7 +1521,7 @@ func TestOutputFormatFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -1376,7 +1546,7 @@ func TestOutputFormatFlagWithOtherOptions(t *testing.T) {
 		},
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, true)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Verify all flags are present
 	assertContainsArgs(t, cmd, "--system-prompt", "You are helpful")
@@ -1404,157 +1574,6 @@ func validateJSONSchemaFlagPresent(t *testing.T, cmd []string) {
 func validateNoJSONSchemaFlag(t *testing.T, cmd []string) {
 	t.Helper()
 	assertNotContainsArg(t, cmd, "--json-schema")
-}
-
-const agentsFlag = "--agents"
-
-// TestAgentsFlagSupport tests --agents CLI flag generation
-func TestAgentsFlagSupport(t *testing.T) {
-	tests := []struct {
-		name     string
-		options  *shared.Options
-		validate func(*testing.T, []string)
-	}{
-		{
-			name: "single_agent",
-			options: &shared.Options{
-				Agents: map[string]shared.AgentDefinition{
-					"code-reviewer": {
-						Description: "Reviews code",
-						Prompt:      "You are a reviewer...",
-						Tools:       []string{"Read", "Grep"},
-						Model:       shared.AgentModelSonnet,
-					},
-				},
-			},
-			validate: validateSingleAgentFlag,
-		},
-		{
-			name: "multiple_agents",
-			options: &shared.Options{
-				Agents: map[string]shared.AgentDefinition{
-					"reviewer": {
-						Description: "Reviews",
-						Prompt:      "Reviewer prompt",
-					},
-					"tester": {
-						Description: "Tests",
-						Prompt:      "Tester prompt",
-					},
-				},
-			},
-			validate: validateMultipleAgentsFlag,
-		},
-		{
-			name: "omit_nil_fields",
-			options: &shared.Options{
-				Agents: map[string]shared.AgentDefinition{
-					"minimal": {
-						Description: "Minimal agent",
-						Prompt:      "Minimal prompt",
-						// Tools and Model are empty/nil
-					},
-				},
-			},
-			validate: validateMinimalAgentFlag,
-		},
-		{
-			name: "empty_agents",
-			options: &shared.Options{
-				Agents: map[string]shared.AgentDefinition{},
-			},
-			validate: validateNoAgentsFlag,
-		},
-		{
-			name: "nil_agents",
-			options: &shared.Options{
-				Agents: nil,
-			},
-			validate: validateNoAgentsFlag,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
-			test.validate(t, cmd)
-		})
-	}
-}
-
-func validateSingleAgentFlag(t *testing.T, cmd []string) {
-	t.Helper()
-	// Find the --agents flag and verify JSON content
-	for i, arg := range cmd {
-		if arg == agentsFlag && i+1 < len(cmd) {
-			value := cmd[i+1]
-			// Should contain the agent definition with all fields
-			if !strings.Contains(value, `"code-reviewer"`) {
-				t.Errorf("Expected --agents value to contain code-reviewer, got %q", value)
-			}
-			if !strings.Contains(value, `"description":"Reviews code"`) {
-				t.Errorf("Expected --agents value to contain description, got %q", value)
-			}
-			if !strings.Contains(value, `"prompt":"You are a reviewer..."`) {
-				t.Errorf("Expected --agents value to contain prompt, got %q", value)
-			}
-			if !strings.Contains(value, `"tools"`) {
-				t.Errorf("Expected --agents value to contain tools, got %q", value)
-			}
-			if !strings.Contains(value, `"model":"sonnet"`) {
-				t.Errorf("Expected --agents value to contain model, got %q", value)
-			}
-			return
-		}
-	}
-	t.Error("Expected --agents flag to be present")
-}
-
-func validateMultipleAgentsFlag(t *testing.T, cmd []string) {
-	t.Helper()
-	for i, arg := range cmd {
-		if arg == agentsFlag && i+1 < len(cmd) {
-			value := cmd[i+1]
-			if !strings.Contains(value, `"reviewer"`) {
-				t.Errorf("Expected --agents value to contain reviewer, got %q", value)
-			}
-			if !strings.Contains(value, `"tester"`) {
-				t.Errorf("Expected --agents value to contain tester, got %q", value)
-			}
-			return
-		}
-	}
-	t.Error("Expected --agents flag to be present")
-}
-
-func validateMinimalAgentFlag(t *testing.T, cmd []string) {
-	t.Helper()
-	for i, arg := range cmd {
-		if arg == agentsFlag && i+1 < len(cmd) {
-			value := cmd[i+1]
-			// Should contain description and prompt
-			if !strings.Contains(value, `"description":"Minimal agent"`) {
-				t.Errorf("Expected --agents value to contain description, got %q", value)
-			}
-			if !strings.Contains(value, `"prompt":"Minimal prompt"`) {
-				t.Errorf("Expected --agents value to contain prompt, got %q", value)
-			}
-			// Should NOT contain tools or model (they're empty)
-			if strings.Contains(value, `"tools"`) {
-				t.Errorf("Expected --agents value to NOT contain empty tools, got %q", value)
-			}
-			if strings.Contains(value, `"model"`) {
-				t.Errorf("Expected --agents value to NOT contain empty model, got %q", value)
-			}
-			return
-		}
-	}
-	t.Error("Expected --agents flag to be present")
-}
-
-func validateNoAgentsFlag(t *testing.T, cmd []string) {
-	t.Helper()
-	assertNotContainsArg(t, cmd, agentsFlag)
 }
 
 // TestIncludePartialMessagesFlagSupport tests CLI flag for partial message streaming
@@ -1596,7 +1615,7 @@ func TestIncludePartialMessagesFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, false)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
@@ -1610,7 +1629,7 @@ func TestIncludePartialMessagesWithOtherOptions(t *testing.T) {
 		ContinueConversation:   true,
 	}
 
-	cmd := BuildCommand("/usr/local/bin/claude", options, false)
+	cmd := BuildCommand("/usr/local/bin/claude", options)
 
 	// Verify all flags are present
 	assertContainsArg(t, cmd, "--include-partial-messages")
@@ -1643,11 +1662,6 @@ func TestCompareVersionParts(t *testing.T) {
 // TestCheckCLIVersion tests CLI version check (mimics Python SDK _check_claude_version)
 func TestCheckCLIVersion(t *testing.T) {
 	ctx := context.Background()
-	originalTimeout := cliVersionCheckTimeout
-	cliVersionCheckTimeout = 10 * time.Second
-	defer func() {
-		cliVersionCheckTimeout = originalTimeout
-	}()
 
 	t.Run("outdated_returns_warning", func(t *testing.T) {
 		mockCLI := createVersionMockCLI(t, "1.0.0")
@@ -1697,26 +1711,6 @@ func TestCheckCLIVersionSkipEnvVar(t *testing.T) {
 	}
 }
 
-// createVersionMockCLI creates a mock CLI script that outputs the given version
-func createVersionMockCLI(t *testing.T, version string) string {
-	t.Helper()
-	tempDir := t.TempDir()
-	mockCLI := filepath.Join(tempDir, "mock-claude")
-	if runtime.GOOS == windowsOS {
-		mockCLI += ".bat"
-		//nolint:gosec // G306: Test file needs execute permission for mock CLI binary
-		if err := os.WriteFile(mockCLI, []byte("@echo off\necho "+version), 0o700); err != nil {
-			t.Fatalf("Failed to create mock CLI: %v", err)
-		}
-	} else {
-		//nolint:gosec // G306: Test file needs execute permission for mock CLI binary
-		if err := os.WriteFile(mockCLI, []byte("#!/bin/bash\necho '"+version+"'"), 0o700); err != nil {
-			t.Fatalf("Failed to create mock CLI: %v", err)
-		}
-	}
-	return mockCLI
-}
-
 // TestSkillsFlagSupport tests that the Skills option transforms AllowedTools
 // and defaults SettingSources, matching the Python SDK's _apply_skills_defaults.
 func TestSkillsFlagSupport(t *testing.T) {
@@ -1747,6 +1741,12 @@ func TestSkillsFlagSupport(t *testing.T) {
 			options: &shared.Options{
 				Skills: shared.SkillsAll,
 			},
+			validate: validateSkillsDefaultsSettingSources,
+		},
+		{
+			// P1(b): the NewOptions default must not hide the skills default.
+			name:     "skills_disabled_from_new_options_defaults_setting_sources",
+			options:  newOptionsWithSkills([]string{}),
 			validate: validateSkillsDefaultsSettingSources,
 		},
 		{
@@ -1782,10 +1782,16 @@ func TestSkillsFlagSupport(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := BuildCommand("/usr/local/bin/claude", test.options, true)
+			cmd := BuildCommand("/usr/local/bin/claude", test.options)
 			test.validate(t, cmd)
 		})
 	}
+}
+
+func newOptionsWithSkills(skills any) *shared.Options {
+	options := shared.NewOptions()
+	options.Skills = skills
+	return options
 }
 
 func validateSkillsAll(t *testing.T, cmd []string) {
@@ -1811,12 +1817,12 @@ func validateSkillsDisabled(t *testing.T, cmd []string) {
 
 func validateSkillsDefaultsSettingSources(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "user,project")
+	assertContainsArg(t, cmd, "--setting-sources=user,project")
 }
 
 func validateSkillsPreservesSettingSources(t *testing.T, cmd []string) {
 	t.Helper()
-	assertContainsArgs(t, cmd, "--setting-sources", "local")
+	assertContainsArg(t, cmd, "--setting-sources=local")
 }
 
 func validateSkillsNoDuplicate(t *testing.T, cmd []string) {
@@ -1831,27 +1837,139 @@ func validateSkillsPreservesAllowedTools(t *testing.T, cmd []string) {
 
 func validateSkillsNoop(t *testing.T, cmd []string) {
 	t.Helper()
-	// AllowedTools unchanged; SettingSources stays at the global default (empty).
+	// AllowedTools unchanged; SettingSources stays nil, so no flag.
 	assertContainsArgs(t, cmd, "--allowed-tools", "Read")
-	assertNotContainsArg(t, cmd, "--setting-sources")
+	assertNoSettingSourcesFlag(t, cmd)
 }
 
-// TestSessionIDFlagSupport tests the SessionID option mapping to the
-// --session-id CLI flag, and that resume keeps using --resume without
-// emitting --session-id.
-func TestSessionIDFlagSupport(t *testing.T) {
-	sessionID := "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"
-	options := &shared.Options{SessionID: &sessionID}
-	cmd := BuildCommand("/usr/local/bin/claude", options, false)
-	assertContainsArgs(t, cmd, "--session-id", sessionID)
-	assertNotContainsArg(t, cmd, "--resume")
+// TestIsWindowsBatchPath pins Python _is_windows_batch_cli: any path component, split on ":", trailing ". " trimmed.
+func TestIsWindowsBatchPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{`claude.cmd`, true},
+		{`claude.bat`, true},
+		{`CLAUDE.CMD`, true},
+		{`C:\Users\x\AppData\Roaming\npm\claude.cmd`, true},
+		{`C:/Users/x/AppData/Roaming/npm/claude.cmd`, true},
+		{`claude.cmd.`, true},
+		{`claude.cmd. . `, true},
+		{`claude.cmd:stream`, true},
+		{`claude:evil.cmd`, true},
+		{`C:claude.cmd`, true},
+		{`.cmd`, true},
+		{`claude.bat\..\claude.exe`, true},
+		{`claude.cmd\...\..`, true},
+		{`C:\tools\claude.exe`, false},
+		{`claude.exe`, false},
+		{`/home/x/.local/bin/claude`, false},
+		{`claude.cmdx`, false},
+		{`C:\cmd\claude.exe`, false},
+		{``, false},
+	}
+	for _, tt := range tests {
+		if got := isWindowsBatchPath(tt.path); got != tt.want {
+			t.Errorf("isWindowsBatchPath(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
 
-	resume := "existing-session"
-	resumeOptions := &shared.Options{Resume: &resume}
-	cmd = BuildCommand("/usr/local/bin/claude", resumeOptions, false)
-	assertContainsArgs(t, cmd, "--resume", resume)
-	assertNotContainsArg(t, cmd, "--session-id")
+// TestIsWindowsNativeExe pins Python _is_windows_native_exe: final component only.
+func TestIsWindowsNativeExe(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{`C:\Users\x\.local\bin\claude.exe`, true},
+		{`claude.EXE`, true},
+		{`claude.com`, true},
+		{`claude.exe. `, true},
+		{`claude.exe.cmd`, false},
+		{`C:\Users\x\AppData\Roaming\npm\claude.cmd`, false},
+		{`claude`, false},
+		{`C:\claude.exe\claude`, false},
+	}
+	for _, tt := range tests {
+		if got := isWindowsNativeExe(tt.path); got != tt.want {
+			t.Errorf("isWindowsNativeExe(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
 
-	cmd = BuildCommand("/usr/local/bin/claude", &shared.Options{}, false)
-	assertNotContainsArg(t, cmd, "--session-id")
+func TestRejectWindowsBatchCLI(t *testing.T) {
+	if err := RejectWindowsBatchCLI("linux", `claude.cmd`); err != nil {
+		t.Errorf("linux: unexpected error %v", err)
+	}
+	if err := RejectWindowsBatchCLI("darwin", `C:\npm\claude.bat`); err != nil {
+		t.Errorf("darwin: unexpected error %v", err)
+	}
+	if err := RejectWindowsBatchCLI(windowsOS, `C:\Users\x\.local\bin\claude.exe`); err != nil {
+		t.Errorf("windows exe: unexpected error %v", err)
+	}
+
+	path := `C:\Users\x\AppData\Roaming\npm\claude.cmd`
+	err := RejectWindowsBatchCLI(windowsOS, path)
+	var connErr *shared.ConnectionError
+	if !errors.As(err, &connErr) {
+		t.Fatalf("windows cmd: error = %T %v, want *shared.ConnectionError", err, err)
+	}
+	for _, want := range []string{path, "cmd.exe", "irm https://claude.ai/install.ps1 | iex", "WithCLIPath"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+// TestFindOnPath covers the PATH step of FindCLI: on Windows prefer a native claude.exe over a shim.
+func TestFindOnPath(t *testing.T) {
+	const (
+		shim = `C:\npm\claude.cmd`
+		exe  = `C:\Users\x\.local\bin\claude.exe`
+	)
+	lookPath := func(hits map[string]string) func(string) (string, error) {
+		return func(name string) (string, error) {
+			if p, ok := hits[name]; ok {
+				return p, nil
+			}
+			return "", exec.ErrNotFound
+		}
+	}
+	tests := []struct {
+		name           string
+		goos           string
+		hits           map[string]string
+		wantUse        string
+		wantLastResort string
+	}{
+		{"unix_hit", "linux", map[string]string{"claude": "/usr/bin/claude"}, "/usr/bin/claude", ""},
+		{"unix_miss", "linux", map[string]string{}, "", ""},
+		{"windows_native_hit", windowsOS, map[string]string{"claude": exe}, exe, ""},
+		{"windows_shim_and_exe", windowsOS, map[string]string{"claude": shim, "claude.exe": exe}, exe, ""},
+		{"windows_shim_only", windowsOS, map[string]string{"claude": shim}, "", shim},
+		{"windows_exe_probe_is_shim", windowsOS, map[string]string{"claude": shim, "claude.exe": `C:\npm\claude.exe.cmd`}, "", shim},
+		{"windows_miss", windowsOS, map[string]string{}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			use, lastResort := findOnPath(tt.goos, lookPath(tt.hits))
+			if use != tt.wantUse || lastResort != tt.wantLastResort {
+				t.Errorf("findOnPath() = (%q, %q), want (%q, %q)", use, lastResort, tt.wantUse, tt.wantLastResort)
+			}
+		})
+	}
+}
+
+func TestCommonCLILocationsWindowsNativeOnly(t *testing.T) {
+	home := filepath.Join("home", "x")
+	locations := commonCLILocations(windowsOS, home)
+	want := []string{filepath.Join(home, ".local", "bin", "claude.exe")}
+	if !reflect.DeepEqual(locations, want) {
+		t.Errorf("windows locations = %v, want %v", locations, want)
+	}
+	for _, location := range commonCLILocations("linux", home) {
+		if isWindowsBatchPath(location) {
+			t.Errorf("linux location %q looks like a batch path", location)
+		}
+	}
 }

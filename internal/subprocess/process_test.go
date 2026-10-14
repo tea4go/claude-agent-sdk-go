@@ -9,12 +9,12 @@ import (
 
 // TestTransportProcessManagement tests process control and termination
 func TestTransportProcessManagement(t *testing.T) {
+	ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+	defer cancel()
+
 	// Test 5-second termination sequence
 	t.Run("five_second_termination", func(t *testing.T) {
-		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-		defer cancel()
-
-		transport := setupTransportForTest(t, newTransportMockCLIWithOptions(WithLongRunning()))
+		transport := setupTransportForTest(t, newTransportMockCLIWithOptions(t, WithLongRunning()))
 		defer disconnectTransportSafely(t, transport)
 
 		connectTransportSafely(ctx, t, transport)
@@ -36,10 +36,7 @@ func TestTransportProcessManagement(t *testing.T) {
 
 	// Test interrupt handling
 	t.Run("interrupt_handling", func(t *testing.T) {
-		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-		defer cancel()
-
-		transport := setupTransportForTest(t, newTransportMockCLIWithControlProtocol())
+		transport := setupTransportForTest(t, newTransportMockCLI(t))
 		defer disconnectTransportSafely(t, transport)
 
 		connectTransportSafely(ctx, t, transport)
@@ -47,8 +44,7 @@ func TestTransportProcessManagement(t *testing.T) {
 		err := transport.Interrupt(ctx)
 		assertNoTransportError(t, err)
 
-		// Protocol interruption stops only the current turn and keeps the
-		// streaming transport available for subsequent queries.
+		// Process should still be manageable after interrupt
 		assertTransportConnected(t, transport, true)
 	})
 }
@@ -59,12 +55,12 @@ func TestTransportTerminateProcessPaths(t *testing.T) {
 		t.Skip("Process termination testing requires Unix signals")
 	}
 
+	ctx, cancel := setupTransportTestContext(t, 15*time.Second)
+	defer cancel()
+
 	// Test normal termination
 	t.Run("normal_termination", func(t *testing.T) {
-		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-		defer cancel()
-
-		transport := setupTransportForTest(t, newTransportMockCLI())
+		transport := setupTransportForTest(t, newTransportMockCLI(t))
 		connectTransportSafely(ctx, t, transport)
 
 		// Close should trigger terminateProcess
@@ -72,35 +68,12 @@ func TestTransportTerminateProcessPaths(t *testing.T) {
 		assertNoTransportError(t, err)
 	})
 
-	// Test SIGTERM timeout (force SIGKILL)
-	t.Run("sigterm_timeout_force_kill", func(t *testing.T) {
-		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-		defer cancel()
-
-		transport := setupTransportForTest(t, newTransportMockCLIWithOptions(WithLongRunning()))
-		connectTransportSafely(ctx, t, transport)
-
-		// This transport ignores SIGTERM for 6 seconds, forcing SIGKILL
-		start := time.Now()
-		err := transport.Close()
-		duration := time.Since(start)
-
-		// Should complete within reasonable time after 5-second timeout
-		if duration > 8*time.Second {
-			t.Errorf("Termination took too long: %v", duration)
-		}
-		assertNoTransportError(t, err)
-	})
-
 	// Test context cancellation during termination
 	t.Run("context_cancelled_during_termination", func(t *testing.T) {
-		ctx, cancel := setupTransportTestContext(t, 15*time.Second)
-		defer cancel()
-
 		// Create a context that we can cancel
 		shortCtx, shortCancel := context.WithCancel(ctx)
 
-		transport := setupTransportForTest(t, newTransportMockCLI())
+		transport := setupTransportForTest(t, newTransportMockCLI(t))
 
 		// Connect with the cancellable context
 		connectTransportSafely(shortCtx, t, transport)

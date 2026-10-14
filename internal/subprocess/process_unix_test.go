@@ -19,7 +19,7 @@ import (
 
 func TestTransportConfiguresDedicatedProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	transport := setupTransportForTest(t, newTransportMockCLI())
+	transport := setupTransportForTest(t, newTransportMockCLI(t))
 	defer func() {
 		cancel()
 		_ = transport.Close()
@@ -34,7 +34,7 @@ func TestTransportConfiguresDedicatedProcessGroup(t *testing.T) {
 
 func TestConnectContextCancellationKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "process-tree.pids")
-	script := createTransportTempScript(fmt.Sprintf(`#!/bin/bash
+	script := createTransportTempScript(t, fmt.Sprintf(`#!/bin/bash
 if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
 sleep 30 &
 child=$!
@@ -44,7 +44,7 @@ wait "$child"
 
 	options := &shared.Options{}
 	ctx, cancel := context.WithCancel(context.Background())
-	transport := New(script, options, false, "sdk-go")
+	transport := New(script, options, "sdk-go")
 
 	var pids []int
 	defer func() {
@@ -85,7 +85,7 @@ wait "$child"
 }
 
 func TestCloseUsesSingleGracePeriod(t *testing.T) {
-	script := createTransportTempScript(`#!/bin/bash
+	script := createTransportTempScript(t, `#!/bin/bash
 if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
 trap '' TERM
 sh -c 'trap "" TERM; while true; do sleep 1; done' &
@@ -117,7 +117,7 @@ wait
 
 func TestAbortImmediatelyKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "abort-process-tree.pids")
-	script := createTransportTempScript(fmt.Sprintf(`#!/bin/bash
+	script := createTransportTempScript(t, fmt.Sprintf(`#!/bin/bash
 if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
 trap '' TERM
 sh -c 'trap "" TERM; while true; do sleep 1; done' &
@@ -168,7 +168,7 @@ wait "$child"
 }
 
 func TestAbortEscalatesConcurrentGracefulClose(t *testing.T) {
-	script := createTransportTempScript(`#!/bin/bash
+	script := createTransportTempScript(t, `#!/bin/bash
 if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
 trap '' TERM
 while true; do sleep 1; done
@@ -203,8 +203,9 @@ while true; do sleep 1; done
 
 func TestConnectRollbackKillsStartedProcessTree(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "rollback-tree.pids")
-	script := createTransportTempScript(fmt.Sprintf(`#!/bin/bash
+	script := createTransportTempScript(t, fmt.Sprintf(`#!/bin/bash
 if [ "$1" = "-v" ]; then echo "3.0.0"; exit 0; fi
+# NO_HANDSHAKE
 sleep 30 &
 child=$!
 echo "$$ $child" > %q
@@ -216,7 +217,6 @@ wait "$child"
 	transport := New(
 		script,
 		&shared.Options{Hooks: map[control.HookEvent][]control.HookMatcher{}},
-		false,
 		"sdk-go",
 	)
 

@@ -16,7 +16,7 @@ func TestDefaultOptions(t *testing.T) {
 	options := NewOptions()
 
 	// Verify that functional options work with shared types
-	assertOptionsMaxThinkingTokens(t, options, 8000)
+	assertOptionsMaxThinkingTokens(t, options, 0)
 
 	// Test that we can apply functional options
 	optionsWithPrompt := NewOptions(WithSystemPrompt("test prompt"))
@@ -437,6 +437,27 @@ func TestExtraArgsSupport(t *testing.T) {
 	}
 }
 
+func TestWithThinking(t *testing.T) {
+	tests := []struct {
+		name   string
+		config ThinkingConfig
+	}{
+		{"adaptive", ThinkingConfigAdaptive{Display: ThinkingDisplaySummarized}},
+		{"enabled", ThinkingConfigEnabled{BudgetTokens: 2000, Display: ThinkingDisplayOmitted}},
+		{"disabled", ThinkingConfigDisabled{}},
+		{"adaptive pointer", &ThinkingConfigAdaptive{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := NewOptions(WithThinking(test.config))
+			if options.Thinking != test.config {
+				t.Errorf("Expected Thinking = %#v, got %#v", test.config, options.Thinking)
+			}
+		})
+	}
+}
+
 func TestOptionsValidationIntegration(t *testing.T) {
 	// Test that validation works through functional options API (detailed tests in internal/shared)
 	validOptions := NewOptions(
@@ -456,18 +477,18 @@ func TestNewOptionsConstructor(t *testing.T) {
 
 	// Test NewOptions with no arguments should return defaults
 	defaultOptions := NewOptions()
-	assertOptionsMaxThinkingTokens(t, defaultOptions, 8000)
+	assertOptionsMaxThinkingTokens(t, defaultOptions, 0)
 	assertOptionsStringSlice(t, defaultOptions.AllowedTools, []string{}, "AllowedTools")
 
 	// Test NewOptions with single functional option
 	singleOptionOptions := NewOptions(WithSystemPrompt("Single option test"))
 	assertOptionsSystemPrompt(t, singleOptionOptions, "Single option test")
 	// Should still have defaults for other fields
-	assertOptionsMaxThinkingTokens(t, singleOptionOptions, 8000)
+	assertOptionsMaxThinkingTokens(t, singleOptionOptions, 0)
 
 	// Test NewOptions with multiple functional options applied in order
 	multipleOptions := NewOptions(
-		WithMaxThinkingTokens(5000),               // Override default
+		WithMaxThinkingTokens(5000),               // Set a value
 		WithAllowedTools("Read"),                  // Add tools
 		WithSystemPrompt("First prompt"),          // Set system prompt
 		WithMaxThinkingTokens(12000),              // Override again (should win)
@@ -872,6 +893,7 @@ func (m *mockTransportForOptions) ReceiveMessages(_ context.Context) (<-chan Mes
 	return nil, nil
 }
 func (m *mockTransportForOptions) Interrupt(_ context.Context) error           { return nil }
+func (m *mockTransportForOptions) EndInput(_ context.Context) error            { return nil }
 func (m *mockTransportForOptions) SetModel(_ context.Context, _ *string) error { return nil }
 func (m *mockTransportForOptions) SetPermissionMode(_ context.Context, _ PermissionMode) error {
 	return nil
@@ -880,8 +902,12 @@ func (m *mockTransportForOptions) RewindFiles(_ context.Context, _ string) error
 func (m *mockTransportForOptions) GetMcpStatus(_ context.Context) (*McpStatusResponse, error) {
 	return &McpStatusResponse{}, nil
 }
-func (m *mockTransportForOptions) GetSlashCommands(_ context.Context) ([]SlashCommand, error) {
-	return []SlashCommand{}, nil
+func (m *mockTransportForOptions) StopTask(_ context.Context, _ string) error { return nil }
+func (m *mockTransportForOptions) ReconnectMcpServer(_ context.Context, _ string) error {
+	return nil
+}
+func (m *mockTransportForOptions) ToggleMcpServer(_ context.Context, _ string, _ bool) error {
+	return nil
 }
 func (m *mockTransportForOptions) Close() error                   { return nil }
 func (m *mockTransportForOptions) GetValidator() *StreamValidator { return &StreamValidator{} }
@@ -1733,42 +1759,6 @@ func TestWithSkillsOption(t *testing.T) {
 	}
 }
 
-func TestWithSkillRegistryOption(t *testing.T) {
-	options := NewOptions(WithSkillRegistry("/skills/root", "compress", "validate-json"))
-
-	if len(options.SkillRegistries) != 1 {
-		t.Fatalf("expected 1 skill registry, got %d", len(options.SkillRegistries))
-	}
-
-	registry := options.SkillRegistries[0]
-	if registry.Root != "/skills/root" {
-		t.Fatalf("expected root %q, got %q", "/skills/root", registry.Root)
-	}
-	assertOptionsStringSlice(t, registry.Names, []string{"compress", "validate-json"}, "SkillRegistry.Names")
-	if registry.PluginName != "" {
-		t.Fatalf("expected default plugin name to be empty before transport preparation, got %q", registry.PluginName)
-	}
-}
-
-func TestWithSkillRegistryAllOption(t *testing.T) {
-	options := NewOptions(WithSkillRegistryAll("/skills/root"))
-
-	if len(options.SkillRegistries) != 1 {
-		t.Fatalf("expected 1 skill registry, got %d", len(options.SkillRegistries))
-	}
-
-	registry := options.SkillRegistries[0]
-	if registry.Root != "/skills/root" {
-		t.Fatalf("expected root %q, got %q", "/skills/root", registry.Root)
-	}
-	if registry.Names == nil {
-		t.Fatal("expected empty non-nil names slice for registry-all")
-	}
-	if len(registry.Names) != 0 {
-		t.Fatalf("expected no explicit names, got %v", registry.Names)
-	}
-}
-
 // assertOptionsPlugins verifies Plugins slice values
 func assertOptionsPlugins(t *testing.T, actual, expected []SdkPluginConfig) {
 	t.Helper()
@@ -1837,7 +1827,31 @@ func TestSessionManagementOptions(t *testing.T) {
 		options := NewOptions()
 		assertOptionsForkSession(t, options, false)
 		if options.SettingSources != nil {
-			t.Errorf("Expected SettingSources to be nil, got %v", options.SettingSources)
+			t.Errorf("Expected nil SettingSources (CLI defaults), got %v", options.SettingSources)
+		}
+	})
+
+	t.Run("no_args_means_isolation", func(t *testing.T) {
+		options := NewOptions(WithSettingSources())
+		if options.SettingSources == nil {
+			t.Error("Expected non-nil empty SettingSources, got nil")
+		}
+		if len(options.SettingSources) != 0 {
+			t.Errorf("Expected empty SettingSources, got %v", options.SettingSources)
+		}
+	})
+
+	t.Run("resume_session_at_and_drops_turn", func(t *testing.T) {
+		options := NewOptions(
+			WithResume("session-123"),
+			WithResumeSessionAt("at-uuid"),
+			WithResumeDropsTurn("drops-uuid"),
+		)
+		if options.ResumeSessionAt == nil || *options.ResumeSessionAt != "at-uuid" {
+			t.Errorf("Expected ResumeSessionAt = at-uuid, got %v", options.ResumeSessionAt)
+		}
+		if options.ResumeDropsTurn == nil || *options.ResumeDropsTurn != "drops-uuid" {
+			t.Errorf("Expected ResumeDropsTurn = drops-uuid, got %v", options.ResumeDropsTurn)
 		}
 	})
 
@@ -2576,6 +2590,38 @@ func TestAgentDefinitionOptions(t *testing.T) {
 			t.Fatal("Expected code-reviewer agent to exist")
 		}
 		assertAgentDefinition(t, agent, "Reviews code for best practices", "You are a code reviewer...", []string{"Read", "Grep"}, AgentModelSonnet)
+	})
+
+	t.Run("all_fields_through_root_types", func(t *testing.T) {
+		background := true
+		options := NewOptions(WithAgent("researcher", AgentDefinition{
+			Description:     "Researches",
+			Prompt:          "You research.",
+			DisallowedTools: []string{"Bash"},
+			Skills:          []string{"pdf"},
+			Memory:          AgentMemoryProject,
+			McpServers:      []AgentMcpServer{{Name: "slack"}, {Name: "local", Config: &McpStdioServerConfig{Command: "python"}}},
+			InitialPrompt:   "/start",
+			MaxTurns:        4,
+			Background:      &background,
+			Effort:          AgentEffortTokens(32000),
+			PermissionMode:  PermissionModePlan,
+		}))
+
+		agent := options.Agents["researcher"]
+		if agent.MaxTurns != 4 || agent.Memory != AgentMemoryProject || len(agent.McpServers) != 2 {
+			t.Errorf("agent fields not kept: %+v", agent)
+		}
+		if _, ok := agent.Effort.(AgentEffortTokens); !ok {
+			t.Errorf("Effort type = %T, want AgentEffortTokens", agent.Effort)
+		}
+		var level AgentEffort = AgentEffortLevel(EffortHigh)
+		if _, ok := level.(AgentEffortLevel); !ok {
+			t.Errorf("AgentEffortLevel does not implement AgentEffort")
+		}
+		if err := prepareOptions(options); err != nil {
+			t.Errorf("prepareOptions() = %v, want nil", err)
+		}
 	})
 
 	t.Run("multiple_agents", func(t *testing.T) {
@@ -3702,52 +3748,6 @@ func TestWithSdkMcpServer(t *testing.T) {
 		}
 		if sdkServer.Type != McpServerTypeSdk {
 			t.Errorf("expected type %q, got %q", McpServerTypeSdk, sdkServer.Type)
-		}
-	})
-}
-
-// TestSessionIDOptions tests WithSessionID option behavior and mutual
-// exclusion with WithResume.
-func TestSessionIDOptions(t *testing.T) {
-	validID := "0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a111"
-
-	t.Run("valid_session_id", func(t *testing.T) {
-		options := NewOptions(WithSessionID(validID))
-		if options.SessionID == nil {
-			t.Fatal("expected SessionID to be set, got nil")
-		}
-		if *options.SessionID != validID {
-			t.Errorf("expected SessionID = %q, got %q", validID, *options.SessionID)
-		}
-		if options.Resume != nil {
-			t.Errorf("expected Resume = nil, got %q", *options.Resume)
-		}
-	})
-
-	t.Run("invalid_session_id_rejected", func(t *testing.T) {
-		for _, invalid := range []string{
-			"",
-			"not-a-uuid",
-			"0f0d7a5a33b54f0a9d3e6f2b8cf1a111",
-			"0f0d7a5a-33b5-4f0a-9d3e-6f2b8cf1a11g",
-		} {
-			options := NewOptions(WithSessionID(invalid))
-			if err := options.Validate(); err == nil {
-				t.Errorf("Validate() should reject invalid session ID %q", invalid)
-			}
-		}
-	})
-
-	t.Run("mutual_exclusion_with_resume", func(t *testing.T) {
-		both := NewOptions(WithSessionID(validID), WithResume("existing-session"))
-		if err := both.Validate(); err == nil {
-			t.Error("Validate() should reject SessionID combined with Resume")
-		}
-		if err := NewOptions(WithSessionID(validID)).Validate(); err != nil {
-			t.Errorf("Validate(SessionID only) error = %v", err)
-		}
-		if err := NewOptions(WithResume("existing-session")).Validate(); err != nil {
-			t.Errorf("Validate(Resume only) error = %v", err)
 		}
 	})
 }

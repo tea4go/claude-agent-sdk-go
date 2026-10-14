@@ -2,291 +2,240 @@ package subprocess
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
-	"sync"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/control"
 	"github.com/tea4go/claude-agent-sdk-go/internal/parser"
 	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 )
 
-type serializedStdinWriter struct {
-	mu     sync.Mutex
-	writer io.Writer
+// childProcess is the CLI process that handleStdout watches. Captured at
+// Connect so cleanup clearing t.cmd cannot race with the reader.
+type childProcess struct {
+	cmd  *exec.Cmd
+	done <-chan struct{} // closed after the sole cmd.Wait returns
 }
 
-func newSerializedStdinWriter(writer io.Writer) *serializedStdinWriter {
-	return &serializedStdinWriter{writer: writer}
+// exitError waits for the CLI to exit after stdout EOF. It returns a
+// ProcessError for a non-zero exit, and nil for a clean exit or when the SDK
+// itself shut the CLI down (Python: ProcessError after read_messages ends).
+// The caller drops the error when the SDK is closing the CLI.
+func (c childProcess) exitError(ctx context.Context, lastErrorResult string) error {
+	if c.cmd == nil || c.done == nil {
+		return nil
+	}
+	select {
+	case <-c.done:
+	case <-ctx.Done():
+		return nil
+	}
+	if ctx.Err() != nil || c.cmd.ProcessState == nil || c.cmd.ProcessState.Success() {
+		return nil
+	}
+	return processExitError(c.cmd.ProcessState, lastErrorResult)
 }
 
-func (w *serializedStdinWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.writer.Write(p)
+// processExitError reports a non-zero CLI exit. ExitCode is -1 for a signal.
+func processExitError(state *os.ProcessState, lastErrorResult string) *shared.ProcessError {
+	message := fmt.Sprintf("Claude Code process exited unexpectedly (%s)", state)
+	if lastErrorResult != "" {
+		// The CLI exits non-zero on purpose after an error result; that result
+		// is the actionable error (Python #918).
+		message = "Claude Code returned an error result: " + lastErrorResult
+	}
+	return shared.NewProcessError(message, state.ExitCode(), "Check stderr output for details")
 }
 
-// handleStdout processes stdout in a separate goroutine
-//
-// handleStdout 在独立 goroutine 中处理 stdout（JSONL 流），
-// 将解析出的消息发送到 msgChan，并将控制消息路由给控制协议。
-func (t *Transport) handleStdout() {
+// exitReason says why an exited CLI can no longer serve a turn: a
+// ProcessError for a failure, a ConnectionError for a clean exit.
+func exitReason(state *os.ProcessState, waitErr error) error {
+	if state == nil {
+		return shared.NewConnectionError("Claude Code process exited", waitErr)
+	}
+	if state.Success() {
+		return shared.NewConnectionError(fmt.Sprintf("Claude Code process exited (%s)", state), nil)
+	}
+	return processExitError(state, "")
+}
+
+// handleStdout processes stdout in a separate goroutine. protocol and child
+// are passed in because teardownLocked clears t.protocol and t.cmd while this
+// goroutine may still run.
+func (t *Transport) handleStdout(protocol *control.Protocol, child childProcess) {
 	defer t.wg.Done()
 	defer close(t.msgChan)
 	defer close(t.errChan)
-	defer t.validator.MarkStreamEnd() // Mark stream end for validation // 标记流结束以供校验
+	defer t.validator.MarkStreamEnd() // Mark stream end for validation
+	// Capture channel locally so reassignment on a subsequent Connect()
+	// doesn't race with this goroutine. It closes at stdout EOF, before the
+	// wait for the process exit, so the init watcher sees EOF at once.
+	stdoutDone := t.stdoutDone
+	signalStdoutDone := func() {
+		if stdoutDone != nil {
+			close(stdoutDone)
+			stdoutDone = nil
+		}
+	}
+	defer signalStdoutDone()
 
-	// Stdout is JSONL. Use Reader rather than Scanner so oversized messages
-	// fail through the SDK buffer limit instead of Scanner's token limit.
-	// Stdout 为 JSONL。使用 Reader 而非 Scanner，以便超大消息通过 SDK 缓冲区
-	// 限制报错，而不是受限于 Scanner 的 token 上限。
-	reader := bufio.NewReader(t.stdout)
-	lineLimit := parser.MaxBufferSize
+	scanner := bufio.NewScanner(t.stdout)
+
+	maxLineSize := parser.MaxBufferSize
 	if t.options != nil && t.options.MaxBufferSize != nil {
-		lineLimit = *t.options.MaxBufferSize
+		maxLineSize = *t.options.MaxBufferSize
+	}
+	// The scanner buffer also holds the newline, so +1 lets a line of exactly
+	// the limit through (Python rejects only a longer line). The buffer starts
+	// small and grows to the limit only when a line needs it, so a high limit
+	// does not cost its full size for every open transport. The start size
+	// must not pass the limit, because the scanner uses the larger of the two.
+	startSize := 64 * 1024
+	if startSize > maxLineSize+1 {
+		startSize = maxLineSize + 1
+	}
+	scanner.Buffer(make([]byte, 0, startSize), maxLineSize+1)
+
+	var lastErrorResult string
+	for scanner.Scan() {
+		if t.ctx.Err() != nil {
+			return
+		}
+		if !t.processStdoutLine(protocol, scanner.Text(), &lastErrorResult) {
+			return
+		}
 	}
 
-	parsedAny := false
-	var lineBuilder strings.Builder
-
-	processLine := func(line string) bool {
-		select {
-		case <-t.ctx.Done():
-			return false
-		default:
+	signalStdoutDone()
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			t.endStreamWithError(protocol, parser.NewBufferOverflowError(maxLineSize, err))
+			return
 		}
+		t.endStreamWithError(protocol, fmt.Errorf("stdout scanner error: %w", err))
+		return
+	}
+	// A signal from our own teardown is not a CLI failure.
+	if err := child.exitError(t.ctx, lastErrorResult); err != nil && !t.isClosing() {
+		t.endStreamWithError(protocol, err)
+	}
+}
 
-		if line == "" {
-			return true
-		}
+// endStreamWithError reports the error that ended the CLI's stream. Control
+// requests still waiting for a response fail with it at once, and it is sent
+// to errChan.
+func (t *Transport) endStreamWithError(protocol *control.Protocol, err error) {
+	if protocol != nil {
+		protocol.FailPendingRequests(err)
+	}
+	t.sendStreamError(err)
+}
 
-		// Parse line with the parser
-		messages, err := t.parser.ProcessLine(line)
-		if err != nil {
-			select {
-			case t.errChan <- err:
-			case <-t.ctx.Done():
-				return false
-			}
-			return true
-		}
-
-		// Send parsed messages and track for validation
-		for _, msg := range messages {
-			if msg == nil {
-				continue
-			}
-
-			// If this is an error ResultMessage before we're fully connected,
-			// it means the CLI failed during init (e.g., invalid session ID).
-			// Route the error to the control protocol to unblock Initialize().
-			// 若在尚未完全连接前就收到错误 ResultMessage，说明 CLI 在初始化阶段
-			// 失败（如无效会话 ID），将错误路由给控制协议以解除 Initialize() 阻塞。
-			t.routeInitError(msg)
-
-			// Check if this is a control message that should be routed to the protocol
-			// 检查是否为应路由给控制协议的控制消息
-			if rawCtrl, ok := msg.(*shared.RawControlMessage); ok {
-				// Route control messages to the protocol for request/response correlation
-				if t.protocol != nil {
-					// DispatchIncomingMessage routes control responses immediately and
-					// runs SDK MCP handlers away from the sole stdout reader.
-					_ = t.protocol.DispatchIncomingMessage(t.ctx, rawCtrl.Data)
-				}
-				// Don't send control messages to msgChan - they're internal to the protocol
-				continue
-			}
-
-			// Track regular message for stream validation
-			t.validator.TrackMessage(msg)
-			t.cacheSlashCommands(msg)
-
-			select {
-			case t.msgChan <- msg:
-				parsedAny = true
-			case <-t.ctx.Done():
-				return false
-			}
-		}
+// processStdoutLine parses one stdout line and routes its messages. It
+// returns false when the transport context is done.
+func (t *Transport) processStdoutLine(protocol *control.Protocol, line string, lastErrorResult *string) bool {
+	if line == "" {
 		return true
 	}
 
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		if len(fragment) > 0 {
-			lineComplete := fragment[len(fragment)-1] == '\n'
-			if lineComplete {
-				fragment = trimStdoutLineEnding(fragment)
-			}
-
-			if lineBuilder.Len()+len(fragment) > lineLimit {
-				bufferSize := lineBuilder.Len() + len(fragment)
-				select {
-				case t.errChan <- shared.NewJSONDecodeError(
-					"buffer overflow",
-					0,
-					fmt.Errorf("buffer size %d exceeds limit %d", bufferSize, lineLimit),
-				):
-				case <-t.ctx.Done():
-					return
-				}
-				lineBuilder.Reset()
-				if !lineComplete {
-					if drainErr := drainStdoutLine(reader); drainErr != nil && !errors.Is(drainErr, io.EOF) {
-						select {
-						case t.errChan <- fmt.Errorf("stdout read error: %w", drainErr):
-						case <-t.ctx.Done():
-						}
-						return
-					}
-				}
-			} else {
-				lineBuilder.Write(fragment)
-				if lineComplete {
-					if !processLine(lineBuilder.String()) {
-						return
-					}
-					lineBuilder.Reset()
-				}
-			}
-		}
-
-		if err == nil {
-			continue
-		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
-		}
-		if errors.Is(err, io.EOF) {
-			if lineBuilder.Len() > 0 && !processLine(lineBuilder.String()) {
-				return
-			}
-			break
-		}
-		select {
-		case t.errChan <- fmt.Errorf("stdout read error: %w", err):
-		case <-t.ctx.Done():
-		}
-		return
+	messages, err := t.parser.ProcessLine(line)
+	if err != nil {
+		return t.sendStreamError(err)
 	}
 
-	if !parsedAny {
-		if stderrText := t.readStderrText(64 * 1024); stderrText != "" {
-			select {
-			case t.errChan <- fmt.Errorf("claude cli produced no stdout messages; stderr:\n%s", stderrText):
-			case <-t.ctx.Done():
-			}
-			return
+	for _, msg := range messages {
+		if msg == nil {
+			continue
 		}
+
+		// An error ResultMessage before initialize completes means the CLI
+		// failed during init (e.g. invalid session ID); unblock Initialize().
+		routeInitError(protocol, msg)
+
+		if rawCtrl, ok := msg.(*shared.RawControlMessage); ok {
+			if protocol != nil && !t.isClosing() {
+				// Control requests run on their own goroutine so a slow callback
+				// cannot stall this reader; responses route inline.
+				_ = protocol.HandleIncomingMessageAsync(t.ctx, rawCtrl.Data)
+			}
+			continue
+		}
+
+		*lastErrorResult = trackErrorResult(*lastErrorResult, msg)
+		t.cacheSlashCommands(msg)
+		t.validator.TrackMessage(msg)
 
 		select {
-		case t.errChan <- fmt.Errorf("claude cli produced no output (no stdout messages). Set WithDebugWriter or WithStderrCallback to inspect stderr, and verify claude CLI is installed/authenticated"):
+		case t.msgChan <- msg:
+		case <-t.closing:
+			// Close is in progress and nobody reads; keep draining stdout.
 		case <-t.ctx.Done():
+			return false
 		}
 	}
+	return true
 }
 
-func trimStdoutLineEnding(line []byte) []byte {
-	if len(line) > 0 && line[len(line)-1] == '\n' {
-		line = line[:len(line)-1]
-	}
-	if len(line) > 0 && line[len(line)-1] == '\r' {
-		line = line[:len(line)-1]
-	}
-	return line
-}
-
-func drainStdoutLine(reader *bufio.Reader) error {
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
-			return nil
+// trackErrorResult returns the error text of the latest error result, or ""
+// once the conversation moves on (Python #918 reset rule).
+func trackErrorResult(current string, msg shared.Message) string {
+	switch m := msg.(type) {
+	case *shared.ResultMessage:
+		if !m.IsError {
+			return ""
 		}
-		if err == nil || errors.Is(err, bufio.ErrBufferFull) {
-			continue
+		if len(m.Errors) > 0 {
+			return strings.Join(m.Errors, "; ")
 		}
-		return err
-	}
-}
-
-func (t *Transport) cacheSlashCommands(msg shared.Message) {
-	systemMsg, ok := msg.(*shared.SystemMessage)
-	if !ok || systemMsg.Subtype != "init" {
-		return
-	}
-
-	commands := parseSlashCommands(systemMsg.Data["slash_commands"])
-	t.mu.Lock()
-	t.slashCommands = commands
-	t.mu.Unlock()
-	t.slashCommandsReadyOnce.Do(func() {
-		close(t.slashCommandsReady)
-	})
-}
-
-func parseSlashCommands(value any) []control.SlashCommand {
-	items, ok := value.([]any)
-	if !ok {
-		if strings, ok := value.([]string); ok {
-			return slashCommandsFromNames(strings)
-		}
-		return []control.SlashCommand{}
-	}
-
-	commands := make([]control.SlashCommand, 0, len(items))
-	for _, item := range items {
-		switch typed := item.(type) {
-		case string:
-			commands = append(commands, control.SlashCommand{Name: normalizeSlashCommandName(typed)})
-		case map[string]any:
-			if name, ok := typed["name"].(string); ok && name != "" {
-				command := control.SlashCommand{Name: normalizeSlashCommandName(name)}
-				if desc, ok := typed["description"].(string); ok {
-					command.Description = desc
-				}
-				commands = append(commands, command)
-			}
+		return m.Subtype
+	case *shared.SystemMessage:
+		if m.Subtype == "session_state_changed" {
+			return current
 		}
 	}
-	return commands
+	return ""
 }
 
-func slashCommandsFromNames(names []string) []control.SlashCommand {
-	commands := make([]control.SlashCommand, 0, len(names))
-	for _, name := range names {
-		commands = append(commands, control.SlashCommand{Name: normalizeSlashCommandName(name)})
+// sendStreamError delivers err to errChan, or drops it while Close runs. It
+// returns false when the transport context is done.
+func (t *Transport) sendStreamError(err error) bool {
+	select {
+	case t.errChan <- err:
+		return true
+	case <-t.closing:
+		return true
+	case <-t.ctx.Done():
+		return false
 	}
-	return commands
 }
 
-func normalizeSlashCommandName(name string) string {
-	if name == "" || strings.HasPrefix(name, "/") {
-		return name
+// isClosing reports whether teardown started.
+func (t *Transport) isClosing() bool {
+	select {
+	case <-t.closing:
+		return true
+	default:
+		return false
 	}
-	return "/" + name
 }
 
 // handleStderrCallback processes stderr in a separate goroutine.
 // Reads line-by-line, strips trailing whitespace, skips empty lines, and
 // silently ignores scanner errors.
-//
-// handleStderrCallback 在独立 goroutine 中处理 stderr：逐行读取、去除尾部空白、
-// 跳过空行，并静默忽略扫描错误。
 func (t *Transport) handleStderrCallback() {
 	defer t.wg.Done()
 
 	scanner := bufio.NewScanner(t.stderrPipe)
 
+	// Deliver every line already written, even after cancellation: Python's
+	// stderr reader never drops a read line. EOF or cleanup closing the pipe
+	// ends the loop.
 	for scanner.Scan() {
-		select {
-		case <-t.ctx.Done():
-			return
-		default:
-		}
-
 		// Strip trailing whitespace (matches Python's rstrip())
 		line := strings.TrimRight(scanner.Text(), " \t\r\n")
 
@@ -308,24 +257,18 @@ func (t *Transport) handleStderrCallback() {
 }
 
 // routeInitError checks if a message is an error ResultMessage arriving before
-// the transport is fully connected, and routes it to the control protocol to
+// the initialize handshake completes, and routes it to the control protocol to
 // unblock Initialize().
-//
-// routeInitError 检查消息是否为在 transport 完全连接前到达的错误 ResultMessage，
-// 并将其路由给控制协议以解除 Initialize() 阻塞。
-func (t *Transport) routeInitError(msg shared.Message) {
+func routeInitError(protocol *control.Protocol, msg shared.Message) {
 	resultMsg, ok := msg.(*shared.ResultMessage)
-	if !ok || t.connected || !resultMsg.IsError || t.protocol == nil {
+	if !ok || !resultMsg.IsError || protocol == nil || protocol.IsInitialized() {
 		return
 	}
-	t.protocol.HandleControlInitErr(errors.New(formatInitError(resultMsg)))
+	protocol.HandleControlInitErr(errors.New(formatInitError(resultMsg)))
 }
 
 // formatInitError builds a meaningful error string from a ResultMessage that
 // arrived during initialization. Prefers Errors, falls back to Result, then Subtype.
-//
-// formatInitError 从初始化期间到达的 ResultMessage 构建有意义的错误字符串：
-// 优先使用 Errors，其次 Result，最后回退到 Subtype。
 func formatInitError(msg *shared.ResultMessage) string {
 	if len(msg.Errors) > 0 {
 		return strings.Join(msg.Errors, "; ")
@@ -336,34 +279,13 @@ func formatInitError(msg *shared.ResultMessage) string {
 	return fmt.Sprintf("initialization failed with subtype: %s", msg.Subtype)
 }
 
-func (t *Transport) readStderrText(limit int64) string {
-	if t.stderr == nil || limit <= 0 {
-		return ""
-	}
-
-	_ = t.stderr.Sync()
-	if _, err := t.stderr.Seek(0, 0); err != nil {
-		return ""
-	}
-
-	data, err := io.ReadAll(io.LimitReader(t.stderr, limit))
-	if err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(string(data))
-}
-
 // setupStderr configures stderr handling based on options.
 // Precedence: StderrCallback > DebugWriter > temp file (default).
-//
-// setupStderr 根据 options 配置 stderr 处理方式。
-// 优先级：StderrCallback > DebugWriter > 临时文件（默认）。
 func (t *Transport) setupStderr() error {
 	switch {
 	case t.options != nil && t.options.StderrCallback != nil:
 		// Create pipe for callback-based stderr handling
-		stderrPipe, err := t.cmd.StderrPipe()
+		stderrPipe, err := t.newChildOutputPipe(&t.cmd.Stderr)
 		if err != nil {
 			return fmt.Errorf("failed to create stderr pipe: %w", err)
 		}
@@ -384,30 +306,43 @@ func (t *Transport) setupStderr() error {
 	return nil
 }
 
-// setupIoPipes configures stdin, stdout, and stderr pipes for the subprocess.
-// For streaming mode, creates a stdin pipe for sending messages. Always creates
-// stdout pipe for receiving responses. Stderr is configured via setupStderr.
-//
-// setupIoPipes 为子进程配置 stdin、stdout、stderr 管道。
-// 流式模式下创建 stdin 管道用于发送消息；总是创建 stdout 管道用于接收响应；
-// stderr 通过 setupStderr 配置。
-func (t *Transport) setupIoPipes() error {
-	var err error
-	if t.promptArg == nil {
-		// Only create stdin pipe if we need to send messages via stdin
-		t.stdin, err = t.cmd.StdinPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stdin pipe: %w", err)
-		}
-		t.stdinWriter = newSerializedStdinWriter(t.stdin)
+// newChildOutputPipe connects a child output stream to an os.Pipe and returns
+// the read end. Unlike cmd.StdoutPipe, cmd.Wait never closes this reader, so
+// output still buffered in the pipe when the process exits is not lost.
+func (t *Transport) newChildOutputPipe(childStream *io.Writer) (*os.File, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
 	}
+	*childStream = writer
+	t.childPipeEnds = append(t.childPipeEnds, writer)
+	return reader, nil
+}
 
-	t.stdout, err = t.cmd.StdoutPipe()
+// closeChildPipeEnds closes the parent's copies of the child-side pipe ends,
+// so the readers see EOF once the child exits. Safe to call more than once.
+func (t *Transport) closeChildPipeEnds() {
+	for _, f := range t.childPipeEnds {
+		_ = f.Close()
+	}
+	t.childPipeEnds = nil
+}
+
+// setupIoPipes configures stdin, stdout, and stderr pipes for the subprocess.
+// Stdin is always opened so the SDK can write the initialize handshake and
+// subsequent user messages. Stderr is configured via setupStderr.
+func (t *Transport) setupIoPipes() error {
+	stdinPipe, err := t.cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+	t.stdin = newStdinWriter(stdinPipe)
+
+	t.stdout, err = t.newChildOutputPipe(&t.cmd.Stdout)
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
-	// Handle stderr configuration
 	if err := t.setupStderr(); err != nil {
 		return err
 	}

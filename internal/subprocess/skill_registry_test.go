@@ -24,7 +24,7 @@ func TestPrepareSkillRegistriesCreatesPluginWrapper(t *testing.T) {
 				Names: []string{"compress", "validate-json"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareSkillRegistries(transport.options)
 	if err != nil {
@@ -64,7 +64,7 @@ func TestPrepareSkillRegistriesUsesFrontmatterSkillNameForAllowedTool(t *testing
 				Names: []string{"zym-skills"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareSkillRegistries(transport.options)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestPrepareSkillRegistriesCanonicalizesFrontmatterSkillNameForAllowedTool(t
 				Names: []string{"e2e-test-creator-v4.2"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareSkillRegistries(transport.options)
 	if err != nil {
@@ -112,7 +112,7 @@ func TestPrepareSkillRegistriesRejectsCanonicalNameCollision(t *testing.T) {
 				Names: []string{"dotted", "hyphenated"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	_, err := transport.prepareSkillRegistries(transport.options)
 	if err == nil {
@@ -135,7 +135,7 @@ func TestPrepareSkillRegistriesPreservesExistingSkillAllowlist(t *testing.T) {
 				Names: []string{"compress"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareSkillRegistries(transport.options)
 	if err != nil {
@@ -160,7 +160,7 @@ func TestRuntimeOptionsCombineRegistryAndConfiguredSkills(t *testing.T) {
 				Names: []string{"compress"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareRuntimeOptions()
 	if err != nil {
@@ -168,9 +168,9 @@ func TestRuntimeOptionsCombineRegistryAndConfiguredSkills(t *testing.T) {
 	}
 	defer transport.cleanup()
 
-	cmd := cli.BuildCommand("claude", opts, true)
+	cmd := cli.BuildCommand("claude", opts)
 	assertContainsArgs(t, cmd, "--allowed-tools", "Skill(sdk-skill-registry:compress),Skill(project-review)")
-	assertContainsArgs(t, cmd, "--setting-sources", "user,project")
+	assertContainsArg(t, cmd, "--setting-sources=user,project")
 }
 
 func TestRuntimeOptionsDoNotRestrictSkillsWhenOnlyRegistryConfigured(t *testing.T) {
@@ -184,7 +184,7 @@ func TestRuntimeOptionsDoNotRestrictSkillsWhenOnlyRegistryConfigured(t *testing.
 				Names: []string{"compress"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareRuntimeOptions()
 	if err != nil {
@@ -192,7 +192,7 @@ func TestRuntimeOptionsDoNotRestrictSkillsWhenOnlyRegistryConfigured(t *testing.
 	}
 	defer transport.cleanup()
 
-	cmd := cli.BuildCommand("claude", opts, true)
+	cmd := cli.BuildCommand("claude", opts)
 	assertNotContainsArg(t, cmd, "--allowed-tools")
 }
 
@@ -207,7 +207,7 @@ func TestRuntimeSkillRegistryRequiresStreamingInitialize(t *testing.T) {
 				Names: []string{"compress"},
 			},
 		},
-	}, false, "sdk-go-client")
+	}, "sdk-go-client")
 
 	opts, err := transport.prepareRuntimeOptions()
 	if err != nil {
@@ -216,8 +216,8 @@ func TestRuntimeSkillRegistryRequiresStreamingInitialize(t *testing.T) {
 	defer transport.cleanup()
 	transport.options = opts
 
-	if !transport.needsProtocolHandshake() {
-		t.Fatal("runtime skill registry plugins should trigger streaming initialize")
+	if len(opts.Plugins) == 0 {
+		t.Fatal("runtime skill registry plugin missing from initialize options")
 	}
 }
 
@@ -236,7 +236,7 @@ func TestPrepareSkillRegistriesAllDiscoversSkillDirs(t *testing.T) {
 				Names: []string{},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	opts, err := transport.prepareSkillRegistries(transport.options)
 	if err != nil {
@@ -264,7 +264,7 @@ func TestPrepareSkillRegistriesRejectsMissingSkill(t *testing.T) {
 				Names: []string{"missing"},
 			},
 		},
-	}, true, "sdk-go")
+	}, "sdk-go")
 
 	_, err := transport.prepareSkillRegistries(transport.options)
 	if err == nil {
@@ -353,6 +353,16 @@ func assertContainsArgs(t *testing.T, args []string, flag, value string) {
 		}
 	}
 	t.Fatalf("expected command to contain %s %s, got %v", flag, value, args)
+}
+
+func assertContainsArg(t *testing.T, args []string, want string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == want {
+			return
+		}
+	}
+	t.Fatalf("missing argument %q in %v", want, args)
 }
 
 func assertNotContainsArg(t *testing.T, args []string, unwanted string) {

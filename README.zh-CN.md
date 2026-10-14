@@ -33,8 +33,10 @@ go get github.com/tea4go/claude-agent-sdk-go
 
 ## 核心特性
 
+本次同步升级的新增能力、稳定性修复、本地补丁保留情况和 whale-term 接入说明，见 [2026-10-14 SDK 同步升级说明](docs/upgrade-2026-10-14.md)。
+
 - **两套 API 覆盖不同需求：** `Query` 适合自动化，`Client` 适合交互式场景
-- **100% Python SDK 兼容：** 功能对齐 Python SDK，同时保持 Go 原生设计
+- **以 Python SDK 功能对齐为目标：** 持续跟进上游，同时保持 Go 原生设计
 - **自动资源管理：** `WithClient` 提供符合 Go 风格的上下文管理模式
 - **会话管理：** 通过 `Query()` 和 `QueryWithSession()` 隔离对话上下文，并通过 `ListSessions()`、`GetSessionInfo()`、`GetSessionMessages()` 直接读取磁盘上的会话
 - **技能与斜杠命令：** 支持注册进程内技能，并发现 CLI 原生斜杠命令

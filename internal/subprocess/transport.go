@@ -1,7 +1,4 @@
 // Package subprocess provides the subprocess transport implementation for Claude Code CLI.
-//
-// subprocess 包提供基于子进程的 Claude Code CLI transport 实现，
-// 负责进程启动、I/O 管道、消息解析、控制协议接入与优雅关闭。
 package subprocess
 
 import (
@@ -11,8 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/tea4go/claude-agent-sdk-go/internal/cli"
@@ -23,45 +20,51 @@ import (
 
 const (
 	// channelBufferSize is the buffer size for message and error channels.
-	// channelBufferSize 是消息通道与错误通道的缓冲区大小。
 	channelBufferSize = 10
-	// ioShutdownTimeout bounds readers after the process tree and pipes stop.
-	// ioShutdownTimeout 限定进程树与管道停止后读取协程的最长等待时间。
-	ioShutdownTimeout = time.Second
+	// terminationTimeoutSeconds is the timeout for graceful process termination.
+	terminationTimeoutSeconds = 5
+	// pipeDrainGrace is how long Close waits, after the CLI is reaped, for the
+	// stderr callback to deliver what is already in its pipe.
+	pipeDrainGrace = 500 * time.Millisecond
 	// windowsOS is the GOOS value for Windows platform.
-	// windowsOS 是 Windows 平台的 GOOS 取值。
 	windowsOS = "windows"
 )
 
 // Transport implements the Transport interface using subprocess communication.
-//
-// Transport 通过子进程通信实现 Transport 接口。
 type Transport struct {
 	// Process management
-	cmd        *exec.Cmd
-	cliPath    string
-	options    *shared.Options
-	closeStdin bool
-	promptArg  *string // For one-shot queries, prompt passed as CLI argument
-	entrypoint string  // CLAUDE_CODE_ENTRYPOINT value (sdk-go or sdk-go-client)
+	cmd                    *exec.Cmd
+	cliPath                string
+	options                *shared.Options
+	baseOptions            *shared.Options
+	entrypoint             string // CLAUDE_CODE_ENTRYPOINT value (sdk-go or sdk-go-client)
+	processTree            processTree
+	treeMu                 sync.RWMutex
+	slashCommands          []control.SlashCommand
+	slashMu                sync.RWMutex
+	slashCommandsReady     chan struct{}
+	slashCommandsReadyOnce sync.Once
+	// processDone closes after the sole cmd.Wait call returns.
+	processDone chan struct{}
+	// exit is guarded by exitMu, not mu, so Done and Err never wait for Close.
+	exitMu sync.Mutex
+	exit   *processExit
 
 	// Connection state
 	connected bool
-	closing   bool
-	closeDone chan struct{}
-	closeErr  error
 	mu        sync.RWMutex
 
 	// I/O streams
-	stdin       io.WriteCloser
-	stdinWriter io.Writer
-	stdout      io.ReadCloser
-	stderr      *os.File      // Temporary file for stderr isolation
-	stderrPipe  io.ReadCloser // Pipe for callback-based stderr handling
+	stdin      *stdinWriter
+	stdout     io.ReadCloser
+	stderr     *os.File      // Temporary file for stderr isolation
+	stderrPipe io.ReadCloser // Pipe for callback-based stderr handling
+	// childPipeEnds are the write ends given to the child; closed after Start.
+	childPipeEnds []*os.File
 
 	// Temporary files (cleaned up on Close)
 	mcpConfigFile     *os.File // Temporary MCP config file
-	skillRegistryDirs []string // Temporary Skill registry plugin wrapper dirs
+	skillRegistryDirs []string
 
 	// Message parsing
 	parser *parser.Parser
@@ -73,61 +76,37 @@ type Transport struct {
 	msgChan chan shared.Message
 	errChan chan error
 
+	// stdoutDone is closed by handleStdout on exit so init-time watchers can
+	// detect the CLI exiting before the initialize handshake completes.
+	stdoutDone chan struct{}
+	// closing is closed when teardown starts; stdout is still drained after it.
+	closing chan struct{}
+
 	// Control protocol (for streaming mode only)
 	protocol        *control.Protocol
 	protocolAdapter *ProtocolAdapter
 
-	// Slash commands discovered from the system/init message.
-	slashCommands          []control.SlashCommand
-	slashCommandsReady     chan struct{}
-	slashCommandsReadyOnce sync.Once
-
 	// Control and cleanup
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	processCancel         context.CancelFunc
-	processTree           processTree
-	cancellationRequested uint32
-	watcherStop           chan struct{}
-	watcherDone           chan struct{}
-	processWaitOnce       sync.Once
-	processWaitDone       chan struct{}
-	processWaitErr        error
-	wg                    sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
-// New creates a new subprocess transport.
-//
-// New 创建一个新的子进程 transport。
-func New(cliPath string, options *shared.Options, closeStdin bool, entrypoint string) *Transport {
+// New creates a new subprocess transport. The transport always uses
+// streaming mode (--input-format stream-json); the prompt for one-shot
+// queries is written to stdin after the initialize handshake.
+func New(cliPath string, options *shared.Options, entrypoint string) *Transport {
 	return &Transport{
-		cliPath:    cliPath,
-		options:    options,
-		closeStdin: closeStdin,
-		entrypoint: entrypoint,
-		parser:     newParser(options),
-		validator:  shared.NewStreamValidator(),
-	}
-}
-
-// NewWithPrompt creates a new subprocess transport for one-shot queries with prompt as CLI argument.
-//
-// NewWithPrompt 为一次性查询创建子进程 transport，将 prompt 作为 CLI 参数传入。
-func NewWithPrompt(cliPath string, options *shared.Options, prompt string) *Transport {
-	return &Transport{
-		cliPath:    cliPath,
-		options:    options,
-		closeStdin: true,
-		entrypoint: "sdk-go", // Query mode uses sdk-go
-		parser:     newParser(options),
-		validator:  shared.NewStreamValidator(),
-		promptArg:  &prompt,
+		cliPath:     cliPath,
+		options:     options,
+		baseOptions: options,
+		entrypoint:  entrypoint,
+		parser:      newParser(options),
+		validator:   shared.NewStreamValidator(),
 	}
 }
 
 // newParser creates a parser using the buffer size from options, or the default.
-//
-// newParser 使用 options 中的缓冲区大小（或默认值）创建解析器。
 func newParser(options *shared.Options) *parser.Parser {
 	if options != nil && options.MaxBufferSize != nil {
 		return parser.NewWithSize(*options.MaxBufferSize)
@@ -136,56 +115,89 @@ func newParser(options *shared.Options) *parser.Parser {
 }
 
 // IsConnected returns whether the transport is currently connected.
-//
-// IsConnected 返回 transport 当前是否处于连接状态。
 func (t *Transport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.connected && t.cmd != nil && t.cmd.Process != nil
+	return t.connected && t.cmd != nil && t.cmd.Process != nil && !t.processExitedLocked()
+}
+
+// processExitedLocked reports whether the CLI process has exited. Callers hold t.mu.
+func (t *Transport) processExitedLocked() bool {
+	if t.processDone == nil {
+		return false
+	}
+	select {
+	case <-t.processDone:
+		return true
+	default:
+		return false
+	}
+}
+
+// closedDone is the Done channel of a transport with no CLI process.
+var closedDone = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// Done returns a channel that is closed when the CLI process started by
+// Connect exits, on its own or through Close. It does not wait for stdout
+// EOF. Before Connect and after Close it returns a closed channel.
+func (t *Transport) Done() <-chan struct{} {
+	t.exitMu.Lock()
+	defer t.exitMu.Unlock()
+	if t.exit == nil {
+		return closedDone
+	}
+	return t.exit.done
+}
+
+// Err returns nil while the CLI process runs. Once Done is closed it returns
+// why: a *shared.ProcessError for a non-zero exit (ExitCode -1 for a signal),
+// a *shared.ConnectionError for a clean exit, and a not-connected error
+// before Connect and after Close.
+func (t *Transport) Err() error {
+	t.exitMu.Lock()
+	exit := t.exit
+	t.exitMu.Unlock()
+	if exit == nil {
+		return fmt.Errorf("transport not connected")
+	}
+	select {
+	case <-exit.done:
+		return exit.err
+	default:
+		return nil
+	}
 }
 
 // Connect starts the Claude CLI subprocess.
-//
-// Connect 启动 Claude CLI 子进程，完成命令构建、环境变量、I/O 管道、
-// 进程树接管与控制协议初始化。
 func (t *Transport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if t.closing {
-		return fmt.Errorf("transport is closing")
-	}
 	if t.connected {
 		return fmt.Errorf("transport already connected")
 	}
-	t.closeDone = make(chan struct{})
-	t.closeErr = nil
+	t.options = t.baseOptions
 
-	// Generate temporary plugin wrappers and MCP config files if requested.
+	// Before anything spawns the CLI, including the version probe below.
+	if err := cli.RejectWindowsBatchCLI(runtime.GOOS, t.cliPath); err != nil {
+		return err
+	}
+
+	// Generate MCP config file if McpServers are specified
 	opts, err := t.prepareRuntimeOptions()
 	if err != nil {
 		return err
 	}
-	t.options = opts
 
-	// Build command with all options
-	var args []string
-	if t.promptArg != nil {
-		// One-shot query with prompt as CLI argument
-		args = cli.BuildCommandWithPrompt(t.cliPath, opts, *t.promptArg)
-	} else {
-		// Streaming mode or regular one-shot
-		args = cli.BuildCommand(t.cliPath, opts, t.closeStdin)
-	}
-	processCtx, processCancel := context.WithCancel(context.Background())
-	t.processCancel = processCancel
-	t.processWaitOnce = sync.Once{}
-	t.processWaitDone = make(chan struct{})
-	t.processWaitErr = nil
-	t.cmd = cli.NewExecCommandContext(processCtx, args)
+	// Build command with all options. Streaming mode is unconditional;
+	// the prompt is written to stdin after initialize, not via --print.
+	args := cli.BuildCommand(t.cliPath, opts)
+	//nolint:gosec // G204: This is the core CLI SDK functionality - subprocess execution is required
+	t.cmd = cli.NewExecCommandContext(context.Background(), args)
 	configureProcessTree(t.cmd)
 
 	// Set up environment and apply to command
@@ -194,8 +206,6 @@ func (t *Transport) Connect(ctx context.Context) error {
 	// Set working directory if specified
 	if t.options != nil && t.options.Cwd != nil {
 		if err := cli.ValidateWorkingDirectory(*t.options.Cwd); err != nil {
-			processCancel()
-			t.cleanup()
 			return err
 		}
 		t.cmd.Dir = *t.options.Cwd
@@ -204,50 +214,68 @@ func (t *Transport) Connect(ctx context.Context) error {
 	// Check CLI version and warn if outdated (non-blocking)
 	t.emitCLIVersionWarning(ctx)
 
-	// Set up I/O pipes
-	if err := t.setupIoPipes(); err != nil {
-		processCancel()
+	if err := ctx.Err(); err != nil {
 		t.cleanup()
 		return err
 	}
 
+	// Set up I/O pipes
+	if err := t.setupIoPipes(); err != nil {
+		return err
+	}
+
 	// Start the process
-	if err := t.cmd.Start(); err != nil {
-		processCancel()
+	err = t.cmd.Start()
+	t.closeChildPipeEnds()
+	if err != nil {
 		t.cleanup()
 		return shared.NewConnectionError(
 			fmt.Sprintf("failed to start Claude CLI: %v", err),
 			err,
 		)
 	}
-
-	tree, err := attachProcessTree(t.cmd)
+	t.startProcessWaiter()
+	t.treeMu.Lock()
+	t.processTree, err = attachProcessTree(t.cmd)
+	t.treeMu.Unlock()
 	if err != nil {
 		_ = t.cmd.Process.Kill()
-		processCancel()
-		_ = t.cmd.Wait()
 		t.cleanup()
-		return shared.NewConnectionError(
-			fmt.Sprintf("failed to own Claude CLI process tree: %v", err),
-			err,
-		)
+		return fmt.Errorf("attach CLI process tree: %w", err)
 	}
-	t.processTree = tree
 
-	// Set up context for goroutine management
-	t.ctx, t.cancel = context.WithCancel(ctx)
-	atomic.StoreUint32(&t.cancellationRequested, 0)
+	t.ctx, t.cancel = context.WithCancel(context.Background())
+	// The caller's context owns the process tree for this connection.
+	callerDone := ctx.Done()
+	processDone := t.processDone
+	tree := t.currentProcessTree()
+	go func() {
+		select {
+		case <-callerDone:
+			if tree != nil {
+				_ = tree.forceStop()
+			}
+		case <-processDone:
+		}
+	}()
 
 	// Initialize channels
 	t.msgChan = make(chan shared.Message, channelBufferSize)
 	t.errChan = make(chan error, channelBufferSize)
+	t.stdoutDone = make(chan struct{})
+	t.closing = make(chan struct{})
 	t.slashCommands = nil
 	t.slashCommandsReady = make(chan struct{})
 	t.slashCommandsReadyOnce = sync.Once{}
 
+	// Build the protocol before handleStdout starts so early CLI output never
+	// races with the t.protocol assignment.
+	t.protocolAdapter = NewProtocolAdapter(t.stdin)
+	t.protocol = control.NewProtocol(t.protocolAdapter, t.buildProtocolOptions()...)
+
 	// Start I/O handling goroutines
 	t.wg.Add(1)
-	go t.handleStdout()
+	go t.handleStdout(t.protocol, childProcess{cmd: t.cmd, done: t.processDone})
 
 	// Start stderr callback goroutine if callback is configured
 	if t.stderrPipe != nil && t.options != nil && t.options.StderrCallback != nil {
@@ -255,116 +283,61 @@ func (t *Transport) Connect(ctx context.Context) error {
 		go t.handleStderrCallback()
 	}
 
-	// Note: Do NOT close stdin here for one-shot mode
-	// The CLI still needs stdin to receive the message, even with --print flag
-	// stdin will be closed after sending the message in SendMessage()
-
-	// Set up control protocol for streaming mode only
-	if err := t.setupControlProtocol(t.ctx); err != nil {
-		atomic.StoreUint32(&t.cancellationRequested, 1)
-		_ = t.terminateProcess()
-		if t.cancel != nil {
-			t.cancel()
-		}
-		if t.protocol != nil {
-			_ = t.protocol.Close()
-			t.protocol = nil
-		}
-		if t.protocolAdapter != nil {
-			_ = t.protocolAdapter.Close()
-			t.protocolAdapter = nil
-		}
-		t.wg.Wait()
-		t.cleanup()
-		t.cancel = nil
-		t.ctx = nil
+	// Set up control protocol and run the initialize handshake. Initialize
+	// is unconditional so the agents map can travel on the initialize
+	// request rather than via argv. Failure here means the subprocess is
+	// running but we cannot use it - tear down so the process is reaped
+	// and goroutines exit.
+	if err := t.setupControlProtocol(ctx); err != nil {
+		_ = t.teardownLocked()
 		return err
 	}
-
-	t.watcherStop = make(chan struct{})
-	t.watcherDone = make(chan struct{})
-	go t.watchCallerCancellation(
-		ctx.Done(),
-		t.watcherStop,
-		t.watcherDone,
-		t.processTree,
-		t.cmd,
-		t.processCancel,
-		t.cancel,
-	)
 
 	t.connected = true
 	return nil
 }
 
-// setupControlProtocol initializes control protocol for streaming mode.
-// Returns nil immediately for one-shot mode (closeStdin == true).
-//
-// setupControlProtocol 为流式模式初始化控制协议；
-// 一次性模式（closeStdin == true）下直接返回 nil。
+// setupControlProtocol starts the control protocol and runs the initialize
+// handshake. The handshake is unconditional so the agents map always
+// reaches the CLI on every connection. ctx bounds only the handshake.
 func (t *Transport) setupControlProtocol(ctx context.Context) error {
-	if t.closeStdin {
-		return nil // One-shot mode doesn't need control protocol
-	}
-
-	if t.stdin == nil {
-		return fmt.Errorf("failed to start control protocol: stdin is not initialized")
-	}
-	if t.stdinWriter == nil {
-		t.stdinWriter = newSerializedStdinWriter(t.stdin)
-	}
-	t.protocolAdapter = NewProtocolAdapter(t.stdinWriter)
-	t.protocol = control.NewProtocol(t.protocolAdapter, t.buildProtocolOptions()...)
-
-	if err := t.protocol.Start(ctx); err != nil {
+	if err := t.protocol.Start(t.ctx); err != nil {
 		return fmt.Errorf("failed to start control protocol: %w", err)
 	}
 
-	// Perform handshake when hooks, permissions, checkpointing, or SDK MCP servers configured
-	if t.needsProtocolHandshake() {
-		if _, err := t.protocol.Initialize(ctx); err != nil {
-			return fmt.Errorf("failed to initialize control protocol: %w", err)
+	// Watch for stdout closure so a CLI that dies before responding to
+	// initialize unblocks the handshake instead of waiting for timeout.
+	// Capture channel/protocol locally so the goroutine doesn't race with a
+	// subsequent Connect() reassigning t.stdoutDone or t.protocol.
+	//
+	// initDone closes AFTER Initialize returns (below), so the watcher
+	// exits cleanly on the success path. Any late stdoutDone fires from
+	// after that are absorbed by HandleControlInitErr's post-init guard.
+	initDone := make(chan struct{})
+	stdoutDone := t.stdoutDone
+	protocol := t.protocol
+	go func() {
+		select {
+		case <-initDone:
+		case <-stdoutDone:
+			protocol.HandleControlInitErr(fmt.Errorf("CLI process exited before initialize handshake completed"))
 		}
+	}()
+
+	_, err := t.protocol.Initialize(ctx)
+	close(initDone)
+	if err != nil {
+		return fmt.Errorf("failed to initialize control protocol: %w", err)
 	}
 
 	return nil
 }
 
-// needsProtocolHandshake returns true if control protocol handshake is required.
-//
-// needsProtocolHandshake 在需要控制协议握手时返回 true
-// （配置了钩子、权限回调、文件检查点、插件、Skill 或 SDK MCP 服务器时）。
-func (t *Transport) needsProtocolHandshake() bool {
-	if t.options == nil {
-		return false
-	}
-	return t.options.Hooks != nil ||
-		t.options.CanUseTool != nil ||
-		t.options.EnableFileCheckpointing ||
-		len(t.options.Plugins) > 0 ||
-		isSkillsList(t.options.Skills) ||
-		t.hasSdkMcpServers()
-}
-
-// SendMessage sends a message to the CLI subprocess.
-//
-// SendMessage 向 CLI 子进程发送一条消息。
+// SendMessage sends a message to the CLI subprocess via stdin.
 func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessage) error {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	// For one-shot queries with promptArg, the prompt is already passed as CLI argument
-	// so we don't need to send any messages via stdin
-	if t.promptArg != nil {
-		return nil // No-op for one-shot queries
-	}
-
-	if !t.connected || t.stdin == nil {
-		return fmt.Errorf("transport not connected or stdin closed")
-	}
-	writer := t.stdinWriter
-	if writer == nil {
-		writer = t.stdin
+	stdin, err := t.openStdin()
+	if err != nil {
+		return err
 	}
 
 	// Check context cancellation
@@ -380,25 +353,48 @@ func (t *Transport) SendMessage(ctx context.Context, message shared.StreamMessag
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	// Send with newline
-	_, err = writer.Write(append(data, '\n'))
-	if err != nil {
+	// Write outside t.mu so Close is never blocked behind a full stdin pipe.
+	if _, err := stdin.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
-	}
-
-	// For one-shot mode, close stdin after sending the message
-	if t.closeStdin {
-		_ = t.stdin.Close()
-		t.stdin = nil
-		t.stdinWriter = nil
 	}
 
 	return nil
 }
 
+// openStdin returns the stdin writer of a connected, live transport.
+func (t *Transport) openStdin() (*stdinWriter, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if !t.connected || t.stdin == nil || t.stdin.isClosed() {
+		return nil, fmt.Errorf("transport not connected or stdin closed")
+	}
+	if t.processExitedLocked() {
+		// Python raises CLIConnectionError from the exit error.
+		return nil, shared.NewConnectionError("cannot write to terminated CLI process", t.Err())
+	}
+	return t.stdin, nil
+}
+
+// EndInput closes the stdin write side, signaling end-of-input to the CLI
+// while leaving stdout/stderr open so messages can still be received.
+// Idempotent: subsequent calls return nil. The context is unused because
+// os.File.Close is a fast non-cancellable syscall.
+func (t *Transport) EndInput(_ context.Context) error {
+	t.mu.RLock()
+	stdin := t.stdin
+	t.mu.RUnlock()
+
+	if stdin == nil {
+		return nil
+	}
+	if err := stdin.EndInput(); err != nil {
+		return fmt.Errorf("failed to close stdin: %w", err)
+	}
+	return nil
+}
+
 // ReceiveMessages returns channels for receiving messages and errors.
-//
-// ReceiveMessages 返回用于接收消息与错误的通道；未连接时返回已关闭的通道。
 func (t *Transport) ReceiveMessages(_ context.Context) (<-chan shared.Message, <-chan error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -415,187 +411,122 @@ func (t *Transport) ReceiveMessages(_ context.Context) (<-chan shared.Message, <
 	return t.msgChan, t.errChan
 }
 
-// Interrupt stops the current turn through the streaming control protocol.
-// It does not terminate the CLI process or disconnect the transport.
-//
-// Interrupt 通过流式控制协议中断当前轮次，
-// 不会终止 CLI 进程，也不会断开 transport。
+// Interrupt asks the CLI to stop the current turn with an interrupt control
+// request. The CLI stays alive for the next query (Python: Query.interrupt).
+// A signal would kill the CLI, and Windows has no SIGINT.
 func (t *Transport) Interrupt(ctx context.Context) error {
-	t.mu.RLock()
-	if !t.connected || t.cmd == nil || t.cmd.Process == nil {
-		t.mu.RUnlock()
-		return fmt.Errorf("process not running")
-	}
-	if t.closeStdin {
-		t.mu.RUnlock()
-		return fmt.Errorf("interrupt not available in one-shot mode")
-	}
-	protocol := t.protocol
-	transportCtx := t.ctx
-	t.mu.RUnlock()
-
-	if transportCtx != nil && transportCtx.Err() != nil {
-		return nil
-	}
-	if protocol == nil {
-		return fmt.Errorf("control protocol not initialized")
-	}
-	err := protocol.Interrupt(ctx)
-	if err != nil && atomic.LoadUint32(&t.cancellationRequested) != 0 {
-		return nil
-	}
-	return err
-}
-
-// Abort immediately force-stops the subprocess tree and performs the same
-// deterministic resource cleanup as Close. It is safe to call while a
-// graceful Close is already in progress; the in-progress close is escalated.
-//
-// Abort 立即强制停止整个子进程树，并执行与 Close 相同的确定性资源清理。
-// 即使已有优雅 Close 正在进行也可安全调用，此时会将其升级为强制停止。
-func (t *Transport) Abort() error {
-	atomic.StoreUint32(&t.cancellationRequested, 1)
-
-	t.mu.RLock()
-	closing := t.closing
-	tree := t.processTree
-	done := t.closeDone
-	t.mu.RUnlock()
-
-	if !closing {
-		return t.Close()
-	}
-
-	var forceErr error
-	if tree != nil {
-		if err := tree.forceStop(); err != nil && !isProcessAlreadyFinishedError(err) {
-			forceErr = fmt.Errorf("force process tree: %w", err)
-		}
-	}
-	if done != nil {
-		<-done
-	}
-
-	t.mu.RLock()
-	closeErr := t.closeErr
-	t.mu.RUnlock()
-	if closeErr != nil {
-		return closeErr
-	}
-	return forceErr
-}
-
-// Close gracefully terminates the subprocess connection. It closes stdin and
-// allows the CLI a bounded interval to persist session state before force-stop.
-//
-// Close 优雅关闭子进程连接：先关闭 stdin，并给 CLI 一段有限时间以持久化
-// 会话状态，随后再强制停止。
-func (t *Transport) Close() error {
-	t.mu.Lock()
-	if t.closing {
-		done := t.closeDone
-		t.mu.Unlock()
-		if done != nil {
-			<-done
-		}
-		t.mu.RLock()
-		err := t.closeErr
-		t.mu.RUnlock()
+	protocol, err := t.connectedProtocol()
+	if err != nil {
 		return err
 	}
+	return protocol.Interrupt(ctx)
+}
+
+// connectedProtocol returns the control protocol of a connected transport.
+// Callers use it outside t.mu, so a pending control request never blocks Close.
+func (t *Transport) connectedProtocol() (*control.Protocol, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	if !t.connected {
-		done := t.closeDone
-		err := t.closeErr
-		t.mu.Unlock()
-		if done != nil {
-			select {
-			case <-done:
-				return err
-			default:
-			}
-		}
-		return nil
+		return nil, fmt.Errorf("transport not connected")
+	}
+	if t.protocol == nil {
+		return nil, fmt.Errorf("internal error: transport connected but control protocol is nil")
+	}
+	return t.protocol, nil
+}
+
+// Close ends the CLI the way Python close() does: close stdin, wait up to 5s
+// for a clean exit, then SIGTERM, wait up to 5s, then SIGKILL. A CLI that
+// exits on stdin EOF (the normal case) ends without a signal.
+func (t *Transport) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.connected {
+		return nil // Already closed
 	}
 
 	t.connected = false
-	t.closing = true
-
-	watcherStop := t.watcherStop
-	t.watcherStop = nil
-	watcherDone := t.watcherDone
-	protocol := t.protocol
-	protocolAdapter := t.protocolAdapter
-	stdin := t.stdin
-	t.stdin = nil
-	t.stdinWriter = nil
-	cancel := t.cancel
-	transportCtx := t.ctx
-	done := t.closeDone
-	t.mu.Unlock()
-
-	if watcherStop != nil {
-		close(watcherStop)
-	}
-	if watcherDone != nil {
-		<-watcherDone
-	}
-	if transportCtx != nil && transportCtx.Err() != nil {
-		atomic.StoreUint32(&t.cancellationRequested, 1)
-	}
-	if stdin != nil {
-		_ = stdin.Close()
-	}
-
-	err := t.terminateProcess()
-
-	if cancel != nil {
-		cancel()
-	}
-	if protocol != nil {
-		_ = protocol.Close()
-	}
-	if protocolAdapter != nil {
-		_ = protocolAdapter.Close()
-	}
-
-	// The tree is gone at this point. Closing read handles guarantees that
-	// escaped descendants cannot keep the SDK readers blocked.
-	t.closeReadPipes()
-	t.waitForReaders()
-	t.cleanup()
-
-	t.mu.Lock()
-	t.protocol = nil
-	t.protocolAdapter = nil
-	t.cancel = nil
-	t.ctx = nil
-	t.closeErr = err
-	t.closing = false
-	if done != nil {
-		close(done)
-	}
-	t.mu.Unlock()
-	return err
+	return t.teardownLocked()
 }
 
-func (t *Transport) closeReadPipes() {
+// Abort terminates the whole CLI process tree immediately.
+func (t *Transport) Abort() error {
+	tree := t.currentProcessTree()
+	if tree != nil {
+		_ = tree.forceStop()
+	}
+	return t.Close()
+}
+
+func (t *Transport) currentProcessTree() processTree {
+	t.treeMu.RLock()
+	defer t.treeMu.RUnlock()
+	return t.processTree
+}
+
+// teardownLocked closes the control protocol and stdin, terminates the
+// subprocess, then cancels the context, waits for I/O goroutines, and clears
+// resources. Caller must hold t.mu. Safe to call from any post-Start state -
+// each field is nil-checked. Used by both Close and Connect's error path.
+func (t *Transport) teardownLocked() error {
+	// Close control protocol first: it cancels in-flight handlers.
+	if t.protocol != nil {
+		_ = t.protocol.Close()
+		t.protocol = nil
+	}
+	if t.protocolAdapter != nil {
+		_ = t.protocolAdapter.Close()
+		t.protocolAdapter = nil
+	}
+
+	// Not cleared: handleStdout keeps reading it until it returns.
+	if t.closing != nil {
+		close(t.closing)
+	}
+	if t.stdin != nil {
+		// Does not wait for a blocked write, so Close never hangs on a full pipe.
+		t.stdin.Close()
+		t.stdin = nil
+	}
+
+	var err error
+	if t.cmd != nil && t.cmd.Process != nil {
+		err = t.terminateProcess()
+	}
+
+	// Cancel after the process ends, so stdout is drained during the grace period.
+	if t.cancel != nil {
+		t.cancel()
+	}
+
+	// The CLI is reaped, so stdout has nothing left that a reader may still
+	// deliver. A descendant that inherited the pipe would keep handleStdout
+	// blocked in its read, so close the read end instead of waiting for EOF.
 	if t.stdout != nil {
 		_ = t.stdout.Close()
 	}
-	if t.stderrPipe != nil {
-		_ = t.stderrPipe.Close()
-	}
-}
 
-func (t *Transport) waitForReaders() {
+	// The stderr callback gets a bounded chance to drain its pipe, which a
+	// descendant may also hold open; cleanup closes it below.
 	done := make(chan struct{})
 	go func() {
 		t.wg.Wait()
 		close(done)
 	}()
-
 	select {
 	case <-done:
-	case <-time.After(ioShutdownTimeout):
+	case <-time.After(pipeDrainGrace):
 	}
+
+	t.cleanup()
+	t.treeMu.Lock()
+	if t.processTree != nil {
+		_ = t.processTree.close()
+		t.processTree = nil
+	}
+	t.treeMu.Unlock()
+	return err
 }

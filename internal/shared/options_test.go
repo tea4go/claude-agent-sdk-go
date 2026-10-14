@@ -15,7 +15,8 @@ func TestOptionsDefaults(t *testing.T) {
 		field    interface{}
 		expected interface{}
 	}{
-		{"MaxThinkingTokens", options.MaxThinkingTokens, 8000},
+		{"MaxThinkingTokens", options.MaxThinkingTokens, 0},
+		{"Thinking_nil", options.Thinking == nil, true},
 		{"ContinueConversation", options.ContinueConversation, false},
 		{"MaxTurns", options.MaxTurns, 0},
 		{"AllowedTools_initialized", options.AllowedTools == nil, false},
@@ -33,8 +34,8 @@ func TestOptionsDefaults(t *testing.T) {
 		{"ExtraEnv_initialized", options.ExtraEnv == nil, false},
 		{"ExtraEnv_empty", len(options.ExtraEnv), 0},
 		{"ForkSession", options.ForkSession, false},
-		{"SettingSources_initialized", options.SettingSources == nil, true},
-		{"SettingSources_empty", len(options.SettingSources), 0},
+		// nil keeps the CLI default sources (Python setting_sources=None).
+		{"SettingSources_nil", options.SettingSources == nil, true},
 	}
 
 	for _, test := range tests {

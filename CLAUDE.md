@@ -6,7 +6,7 @@
 
 ## 概述
 
-**Claude Agent SDK for Go**：用于集成 Claude Code CLI 的非官方 Go SDK。通过 `Query()`（一次性调用）和 `Client`（流式交互）API 提供编程式访问能力，并与 Python SDK 保持 100% 功能对齐。
+**Claude Agent SDK for Go**：用于集成 Claude Code CLI 的非官方 Go SDK。通过 `Query()`（一次性调用）和 `Client`（流式交互）API 提供编程式访问能力，并持续以 Python SDK 功能对齐为目标。
 
 - **模块名：** `github.com/tea4go/claude-agent-sdk-go`
 - **包名：** `claudecode`

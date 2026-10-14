@@ -1,14 +1,14 @@
 # 功能对齐：Go SDK 与 Python SDK
 
-本文全面对比 Go Agent SDK 与 Python Agent SDK，说明两者已实现 100% 功能对齐。
+本文记录早期 Go Agent SDK 与 Python Agent SDK 的功能对照。下表是历史快照；当前进度以 `docs/tracking/` 为准。
 
 ---
 
 ## 执行摘要
 
-**状态：已实现 100% 功能对齐**
+**状态：持续对齐中；下表百分比仅代表历史快照。**
 
-Go SDK（`github.com/tea4go/claude-agent-sdk-go`）实现了 Python SDK（`claude-agent-sdk`）的全部功能，并额外提供了更符合 Go 习惯的增强能力。
+Go SDK（`github.com/tea4go/claude-agent-sdk-go`）以 Python SDK（`claude-agent-sdk`）的功能对齐为目标，并提供 Go 习惯的扩展能力。
 
 | 类别 | Python SDK | Go SDK | 对齐情况 |
 |:-----|:-----------|:-------|:---------|
@@ -498,9 +498,9 @@ err := claudecode.WithClient(ctx, func(client claudecode.Client) error {
 
 ## 结论
 
-Go SDK 在与 Python SDK 完整对齐的同时，还提供了更符合 Go 生态的扩展能力：
+Go SDK 持续跟进 Python SDK，并提供符合 Go 生态的扩展能力：
 
-- **已实现 100% Python SDK 功能**
+- **持续追踪 Python SDK 功能**，详见 `docs/tracking/`
 - **使用函数式选项模式**，配置方式更灵活
 - **采用 Context-first 设计**，便于取消和超时控制
 - **基于接口设计**，更利于测试

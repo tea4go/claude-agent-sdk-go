@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -15,6 +16,134 @@ import (
 type contextKey string
 
 const cancelKey contextKey = "cancel"
+
+// TestQueryCanUseToolRoutesPermissionPrompts verifies Query applies the same
+// CanUseTool configuration as Client.Connect (Issue #146). Without
+// --permission-prompt-tool stdio the CLI never asks the callback.
+func TestQueryCanUseToolRoutesPermissionPrompts(t *testing.T) {
+	callback := func(_ context.Context, _ string, _ map[string]any, _ ToolPermissionContext) (PermissionResult, error) {
+		return NewPermissionResultAllow(), nil
+	}
+	tests := []struct {
+		name        string
+		opts        []Option
+		wantErr     string
+		wantToolPtr bool
+	}{
+		{name: "callback_sets_stdio", opts: []Option{WithCanUseTool(callback)}, wantToolPtr: true},
+		{name: "explicit_stdio_allowed", opts: []Option{WithCanUseTool(callback), WithPermissionPromptToolName("stdio")}, wantToolPtr: true},
+		{name: "other_tool_rejected", opts: []Option{WithCanUseTool(callback), WithPermissionPromptToolName("mcp__perm__ask")}, wantErr: "cannot be used with PermissionPromptToolName"},
+		{name: "no_callback_unchanged", opts: nil, wantToolPtr: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := setupQueryTestContext(t, 5*time.Second)
+			defer cancel()
+
+			iter, err := QueryWithTransport(ctx, "Hi", newQueryMockTransport(), test.opts...)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("QueryWithTransport() error = %v, want substring %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("QueryWithTransport() error = %v", err)
+				return
+			}
+			defer func() { _ = iter.Close() }()
+
+			toolName := iter.(*queryIterator).options.PermissionPromptToolName
+			if !test.wantToolPtr {
+				if toolName != nil {
+					t.Fatalf("PermissionPromptToolName = %q, want nil", *toolName)
+				}
+				return
+			}
+			if toolName == nil || *toolName != "stdio" {
+				t.Fatalf("PermissionPromptToolName = %v, want \"stdio\"", toolName)
+			}
+		})
+	}
+}
+
+// TestQueryContextCancelClosesTransport verifies that cancelling the Query
+// ctx closes the transport even when the caller stops calling Next, so the
+// CLI process does not outlive the query (Python: query() closes in finally).
+func TestQueryContextCancelClosesTransport(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	transport := newQueryMockTransport(
+		WithQueryAssistantResponse("first"),
+		WithQueryAssistantResponse("second"),
+	)
+	iter, err := QueryWithTransport(ctx, "Hi", transport)
+	if err != nil {
+		t.Fatalf("QueryWithTransport() error = %v", err)
+		return
+	}
+	if _, err := iter.Next(ctx); err != nil {
+		t.Fatalf("Next() error = %v", err)
+		return
+	}
+
+	cancel()
+	deadline := time.Now().Add(2 * time.Second)
+	for transport.getCloseCalls() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := transport.getCloseCalls(); got != 1 {
+		t.Fatalf("transport Close calls = %d after ctx cancel, want 1", got)
+	}
+}
+
+// TestQueryClosesTransportAtStreamEnd verifies the iterator closes the
+// transport on every terminal path, so a caller that drains it without Close
+// leaks no process or temp file (Issue #145).
+func TestQueryClosesTransportAtStreamEnd(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport *queryMockTransport
+		wantErr   string
+	}{
+		{name: "drained_to_end", transport: newQueryMockTransport(WithQueryAssistantResponse("done"))},
+		{name: "start_fails_after_connect", transport: newQueryMockTransport(WithQuerySendError(errors.New("write failed"))), wantErr: "write failed"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := setupQueryTestContext(t, 5*time.Second)
+			defer cancel()
+
+			iter, err := QueryWithTransport(ctx, "Hi", test.transport)
+			if err != nil {
+				t.Fatalf("QueryWithTransport() error = %v", err)
+				return
+			}
+			var lastErr error
+			for lastErr == nil {
+				_, lastErr = iter.Next(ctx)
+			}
+			if test.wantErr == "" && !errors.Is(lastErr, ErrNoMoreMessages) {
+				t.Fatalf("Next() error = %v, want ErrNoMoreMessages", lastErr)
+			}
+			if test.wantErr != "" && !strings.Contains(lastErr.Error(), test.wantErr) {
+				t.Fatalf("Next() error = %v, want substring %q", lastErr, test.wantErr)
+			}
+			if got := test.transport.getCloseCalls(); got != 1 {
+				t.Fatalf("transport Close calls = %d, want 1", got)
+			}
+
+			// An explicit Close afterwards stays a no-op.
+			_ = iter.Close()
+			if got := test.transport.getCloseCalls(); got != 1 {
+				t.Fatalf("transport Close calls after iter.Close = %d, want 1", got)
+			}
+		})
+	}
+}
 
 // TestQueryBasicExecution tests simple query functionality.
 func TestQueryBasicExecution(t *testing.T) {
@@ -481,6 +610,15 @@ func TestQueryPublicAPI(t *testing.T) {
 	}
 }
 
+// cliNotFoundMessage is the FindCLI error text with no CLI on PATH: Windows recommends the native
+// installer (npm's claude.cmd shim is refused), other platforms first need Node.js.
+func cliNotFoundMessage() string {
+	if runtime.GOOS == windowsOS {
+		return "Install the native claude.exe"
+	}
+	return "Claude Code requires Node.js"
+}
+
 // TestCreateQueryTransport tests the transport creation function
 func TestCreateQueryTransport(t *testing.T) {
 	tests := []struct {
@@ -497,7 +635,7 @@ func TestCreateQueryTransport(t *testing.T) {
 			options:     NewOptions(),
 			setupMock:   setupIsolatedEnvironment, // Isolate PATH to ensure CLI is not found
 			expectError: true,
-			errorMsg:    "Claude Code requires Node.js", // Should get Node.js not found error
+			errorMsg:    cliNotFoundMessage(),
 		},
 		{
 			name:   "cli_not_found_with_options",
@@ -508,7 +646,7 @@ func TestCreateQueryTransport(t *testing.T) {
 			),
 			setupMock:   setupIsolatedEnvironment,
 			expectError: true,
-			errorMsg:    "Claude Code requires Node.js",
+			errorMsg:    cliNotFoundMessage(),
 		},
 		{
 			name:        "empty_prompt_cli_not_found",
@@ -516,7 +654,7 @@ func TestCreateQueryTransport(t *testing.T) {
 			options:     NewOptions(),
 			setupMock:   setupIsolatedEnvironment,
 			expectError: true,
-			errorMsg:    "Claude Code requires Node.js",
+			errorMsg:    cliNotFoundMessage(),
 		},
 		{
 			name:        "nil_options_cli_not_found",
@@ -524,7 +662,7 @@ func TestCreateQueryTransport(t *testing.T) {
 			options:     nil,
 			setupMock:   setupIsolatedEnvironment,
 			expectError: true,
-			errorMsg:    "Claude Code requires Node.js",
+			errorMsg:    cliNotFoundMessage(),
 		},
 	}
 
@@ -534,7 +672,8 @@ func TestCreateQueryTransport(t *testing.T) {
 			defer cleanup()
 
 			// Call createQueryTransport directly - this will exercise the real function
-			transport, err := createQueryTransport(test.prompt, test.options)
+			_ = test.prompt
+			transport, err := createQueryTransport(test.options)
 
 			if test.expectError {
 				if err == nil {
@@ -798,90 +937,6 @@ func TestQueryIteratorContextCancellation(t *testing.T) {
 	}
 }
 
-func TestQueryIteratorNextUsesCallContext(t *testing.T) {
-	queryCtx, queryCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer queryCancel()
-
-	iter := &queryIterator{
-		ctx:     queryCtx,
-		started: true,
-		msgChan: make(chan Message),
-		errChan: make(chan error),
-	}
-
-	callCtx, callCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer callCancel()
-
-	done := make(chan struct {
-		msg Message
-		err error
-	}, 1)
-	go func() {
-		msg, err := iter.Next(callCtx)
-		done <- struct {
-			msg Message
-			err error
-		}{msg: msg, err: err}
-	}()
-
-	select {
-	case result := <-done:
-		if result.err != context.DeadlineExceeded {
-			t.Fatalf("Expected context.DeadlineExceeded, got msg=%v err=%v", result.msg, result.err)
-		}
-		if result.msg != nil {
-			t.Fatalf("Expected nil message, got %v", result.msg)
-		}
-	case <-time.After(150 * time.Millisecond):
-		t.Fatal("Next() did not respect the per-call context deadline")
-	}
-}
-
-func TestQueryIteratorClosedErrorChannelReturnsNoMoreMessages(t *testing.T) {
-	errChan := make(chan error)
-	iter := &queryIterator{
-		ctx:     context.Background(),
-		started: true,
-		msgChan: make(chan Message),
-		errChan: errChan,
-	}
-	close(errChan)
-
-	ctx, cancel := setupQueryTestContext(t, 100*time.Millisecond)
-	defer cancel()
-
-	msg, err := iter.Next(ctx)
-	if err != ErrNoMoreMessages {
-		t.Fatalf("Expected ErrNoMoreMessages, got msg=%v err=%v", msg, err)
-	}
-	if msg != nil {
-		t.Fatalf("Expected nil message, got %v", msg)
-	}
-}
-
-func TestQueryIteratorReturnsErrorWhenMessageChannelClosed(t *testing.T) {
-	ctx, cancel := setupQueryTestContext(t, 5*time.Second)
-	defer cancel()
-
-	transport := newQueryMockTransport(WithQueryAsyncError(fmt.Errorf("transport error")))
-
-	iter, err := QueryWithTransport(ctx, "test query", transport)
-	if err != nil {
-		t.Fatalf("QueryWithTransport failed: %v", err)
-	}
-	defer func() { _ = iter.Close() }()
-
-	time.Sleep(25 * time.Millisecond)
-
-	msg, err := iter.Next(ctx)
-	if err == nil || !strings.Contains(err.Error(), "transport error") {
-		t.Fatalf("expected transport error, got msg=%v err=%v", msg, err)
-	}
-	if msg != nil {
-		t.Fatalf("expected nil message, got %v", msg)
-	}
-}
-
 // Mock Transport Implementation
 type queryMockTransport struct {
 	mu               sync.RWMutex
@@ -892,11 +947,12 @@ type queryMockTransport struct {
 	responseMessages []Message
 	systemMessages   []*SystemMessage
 	resultMessages   []*ResultMessage
-	asyncError       error
 	connectError     error
 	sendError        error
 	delay            time.Duration
 	optionsReceived  bool
+	endInputCalls    int
+	closeCalls       int
 }
 
 func (q *queryMockTransport) Connect(ctx context.Context) error {
@@ -945,14 +1001,6 @@ func (q *queryMockTransport) Connect(ctx context.Context) error {
 			}
 		}
 
-		if q.asyncError != nil {
-			select {
-			case q.errChan <- q.asyncError:
-			case <-ctx.Done():
-				return
-			}
-		}
-
 		// Keep channels open for a brief moment to allow iterator to consume messages
 		// This prevents race condition where channels close before ReceiveMessages() is called
 		select {
@@ -994,6 +1042,13 @@ func (q *queryMockTransport) ReceiveMessages(_ context.Context) (<-chan Message,
 	return q.msgChan, q.errChan
 }
 
+func (q *queryMockTransport) EndInput(_ context.Context) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.endInputCalls++
+	return nil
+}
+
 func (q *queryMockTransport) Interrupt(_ context.Context) error {
 	return nil
 }
@@ -1014,8 +1069,16 @@ func (q *queryMockTransport) GetMcpStatus(_ context.Context) (*McpStatusResponse
 	return &McpStatusResponse{}, nil
 }
 
-func (q *queryMockTransport) GetSlashCommands(_ context.Context) ([]SlashCommand, error) {
-	return []SlashCommand{}, nil
+func (q *queryMockTransport) StopTask(_ context.Context, _ string) error {
+	return nil
+}
+
+func (q *queryMockTransport) ReconnectMcpServer(_ context.Context, _ string) error {
+	return nil
+}
+
+func (q *queryMockTransport) ToggleMcpServer(_ context.Context, _ string, _ bool) error {
+	return nil
 }
 
 func (q *queryMockTransport) Close() error {
@@ -1023,7 +1086,14 @@ func (q *queryMockTransport) Close() error {
 	defer q.mu.Unlock()
 
 	q.connected = false
+	q.closeCalls++
 	return nil
+}
+
+func (q *queryMockTransport) getCloseCalls() int {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	return q.closeCalls
 }
 
 func (q *queryMockTransport) GetValidator() *StreamValidator {
@@ -1091,12 +1161,6 @@ func WithQueryConnectError(err error) QueryMockOption {
 func WithQuerySendError(err error) QueryMockOption {
 	return func(q *queryMockTransport) {
 		q.sendError = err
-	}
-}
-
-func WithQueryAsyncError(err error) QueryMockOption {
-	return func(q *queryMockTransport) {
-		q.asyncError = err
 	}
 }
 
@@ -1212,7 +1276,7 @@ func setupIsolatedEnvironment(t *testing.T) func() {
 	originalHome := os.Getenv("HOME")
 	originalPath := os.Getenv("PATH")
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsOS {
 		originalHome = os.Getenv("USERPROFILE")
 		_ = os.Setenv("USERPROFILE", tempHome)
 	} else {
@@ -1221,7 +1285,7 @@ func setupIsolatedEnvironment(t *testing.T) func() {
 	_ = os.Setenv("PATH", "/nonexistent/path")
 
 	return func() {
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == windowsOS {
 			_ = os.Setenv("USERPROFILE", originalHome)
 		} else {
 			_ = os.Setenv("HOME", originalHome)

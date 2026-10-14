@@ -4,22 +4,26 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/tea4go/claude-agent-sdk-go/internal/shared"
 	"github.com/tea4go/claude-agent-sdk-go/internal/subprocess"
 )
 
-const defaultSessionID = "default"
+const (
+	defaultSessionID = "default"
+	windowsOS        = "windows"
+)
 
 // Client provides bidirectional streaming communication with Claude Code CLI.
-//
-// Client 提供与 Claude Code CLI 的双向流式通信能力。
 type Client interface {
 	Connect(ctx context.Context, prompt ...StreamMessage) error
 	Disconnect() error
-	// Abort immediately terminates the active Claude CLI process tree. Unlike
-	// Disconnect, it does not wait for graceful session persistence.
 	Abort() error
+	GetSlashCommands(ctx context.Context) ([]SlashCommand, error)
 	Query(ctx context.Context, prompt string) error
 	QueryWithSession(ctx context.Context, prompt string, sessionID string) error
 	QueryStream(ctx context.Context, messages <-chan StreamMessage) error
@@ -43,17 +47,52 @@ type Client interface {
 	// GetMcpStatus returns the connection status of all configured MCP servers.
 	// Only works in streaming mode (after Connect()).
 	GetMcpStatus(ctx context.Context) (*McpStatusResponse, error)
-	// GetSlashCommands returns slash commands available in the current session.
+	// StopTask stops a single running task, such as one subagent, by the
+	// task ID from its TaskStartedMessage.
 	// Only works in streaming mode (after Connect()).
-	GetSlashCommands(ctx context.Context) ([]SlashCommand, error)
+	StopTask(ctx context.Context, taskID string) error
+	// ReconnectMcpServer reconnects a disconnected or failed MCP server by
+	// the name from its configuration.
+	// Only works in streaming mode (after Connect()).
+	ReconnectMcpServer(ctx context.Context, serverName string) error
+	// ToggleMcpServer enables or disables an MCP server by the name from its
+	// configuration. A disabled server shows status "disabled" in GetMcpStatus.
+	// Only works in streaming mode (after Connect()).
+	ToggleMcpServer(ctx context.Context, serverName string, enabled bool) error
 	GetStreamIssues() []StreamIssue
 	GetStreamStats() StreamStats
 	GetServerInfo(ctx context.Context) (map[string]interface{}, error)
+	// Done returns a channel that is closed when the connected CLI process
+	// exits, on its own or through Disconnect. It does not wait for the
+	// ReceiveMessages channel: messages the CLI wrote before it exited can
+	// still be in flight, and a process the CLI started can keep that channel
+	// open after the CLI is gone. Before Connect and after Disconnect the
+	// channel is closed. With a custom Transport that does not report its
+	// process, the channel closes on Disconnect.
+	Done() <-chan struct{}
+	// Err returns nil while the CLI process runs. Once Done is closed it
+	// returns why: a *ProcessError for a non-zero exit (ExitCode -1 for a
+	// signal), a *ConnectionError for a clean exit, or a "client not
+	// connected" error before Connect and after Disconnect. Calls that write
+	// to the CLI then fail with a *ConnectionError that wraps it.
+	Err() error
 }
 
+// processWatcher is implemented by transports that report the exit of their
+// CLI process. Done and Err follow Client.Done and Client.Err.
+type processWatcher interface {
+	Done() <-chan struct{}
+	Err() error
+}
+
+// closedDone is the Done channel of a client with no connection.
+var closedDone = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
 // ClientImpl implements the Client interface.
-//
-// ClientImpl 是 Client 接口的具体实现。
 type ClientImpl struct {
 	mu              sync.RWMutex
 	transport       Transport
@@ -61,16 +100,27 @@ type ClientImpl struct {
 	options         *Options
 	connected       bool
 	msgChan         <-chan Message
-	errChan         <-chan error
-	streamErrChan   chan error // writable; receives errors from QueryStream goroutine
+	stream          *streamReader // shared by every ReceiveResponse iterator
+	streamErrChan   chan error    // writable; receives errors from QueryStream goroutine
 	injectChan      chan Message
 	mergeCancel     context.CancelFunc
 	mergeDone       chan struct{}
+	// disconnected closes on Disconnect. Done returns it when the transport
+	// cannot report its process.
+	disconnected chan struct{}
+	// watch is guarded by watchMu, not mu, so Done and Err never wait for
+	// Disconnect. It is nil while the client is not connected.
+	watchMu sync.Mutex
+	watch   *connectionWatch
+}
+
+// connectionWatch is what Done and Err read for one connection.
+type connectionWatch struct {
+	watcher      processWatcher // nil when the transport cannot report its process
+	disconnected chan struct{}
 }
 
 // NewClient creates a new Client with the given options.
-//
-// NewClient 使用给定的选项创建一个新的 Client。
 func NewClient(opts ...Option) Client {
 	options := NewOptions(opts...)
 	client := &ClientImpl{
@@ -80,8 +130,6 @@ func NewClient(opts ...Option) Client {
 }
 
 // NewClientWithTransport creates a new Client with a custom transport (for testing).
-//
-// NewClientWithTransport 使用自定义 transport 创建 Client（用于测试）。
 func NewClientWithTransport(transport Transport, opts ...Option) Client {
 	options := NewOptions(opts...)
 	return &ClientImpl{
@@ -93,9 +141,6 @@ func NewClientWithTransport(transport Transport, opts ...Option) Client {
 // WithClient provides Go-idiomatic resource management equivalent to Python SDK's async context manager.
 // It automatically connects to Claude Code CLI, executes the provided function, and ensures proper cleanup.
 // This eliminates the need for manual Connect/Disconnect calls and prevents resource leaks.
-//
-// WithClient 提供符合 Go 习惯的资源管理，等价于 Python SDK 的异步上下文管理器：
-// 自动连接 Claude Code CLI、执行给定函数并保证正确清理，无需手动调用 Connect/Disconnect，避免资源泄漏。
 //
 // The function follows Go's established resource management patterns using defer for guaranteed cleanup,
 // similar to how database connections, files, and other resources are typically managed in Go.
@@ -119,7 +164,11 @@ func NewClientWithTransport(transport Transport, opts ...Option) Client {
 //	    // Process responses
 //	    for msg := range client.ReceiveMessages(ctx) {
 //	        if assistantMsg, ok := msg.(*claudecode.AssistantMessage); ok {
-//	            fmt.Println("Claude:", assistantMsg.Content[0].(*claudecode.TextBlock).Text)
+//	            for _, block := range assistantMsg.Content {
+//	                if text, ok := block.(*claudecode.TextBlock); ok {
+//	                    fmt.Println("Claude:", text.Text)
+//	                }
+//	            }
 //	        }
 //	    }
 //	    return nil
@@ -164,8 +213,6 @@ func WithClient(ctx context.Context, fn func(Client) error, opts ...Option) erro
 // WithClientTransport provides Go-idiomatic resource management with a custom transport for testing.
 // This is the testing-friendly version of WithClient that accepts an explicit transport parameter.
 //
-// WithClientTransport 是 WithClient 的测试友好版本，接受显式的自定义 transport 参数以便测试。
-//
 // Usage in tests:
 //
 //	transport := newClientMockTransport()
@@ -203,52 +250,109 @@ func WithClientTransport(ctx context.Context, transport Transport, fn func(Clien
 	return fn(client)
 }
 
-// prepareOptions applies defaults and validates the client configuration options.
-//
-// prepareOptions 应用默认值并校验客户端配置选项。
-func (c *ClientImpl) prepareOptions() error {
-	if c.options == nil {
+// permissionPromptToolStdio routes permission prompts over the control protocol.
+const permissionPromptToolStdio = "stdio"
+
+// prepareOptions applies defaults and validates options. Query and
+// Client.Connect both call it, as Python's _configure_can_use_tool runs for
+// query() and connect().
+func prepareOptions(options *Options) error {
+	if options == nil {
 		return nil // Nil options are acceptable (use defaults)
 	}
 
-	// Auto-configure PermissionPromptToolName when CanUseTool callback is set.
-	// This tells CLI to route permission prompts through stdio (control protocol).
-	if c.options.CanUseTool != nil && c.options.PermissionPromptToolName == nil {
-		stdio := "stdio"
-		c.options.PermissionPromptToolName = &stdio
+	// CanUseTool only fires when the CLI routes permission prompts over stdio.
+	if options.CanUseTool != nil {
+		toolName := options.PermissionPromptToolName
+		if toolName != nil && *toolName != permissionPromptToolStdio {
+			return fmt.Errorf("CanUseTool callback cannot be used with PermissionPromptToolName %q: use one or the other", *toolName)
+		}
+		stdio := permissionPromptToolStdio
+		options.PermissionPromptToolName = &stdio
 	}
 
 	// Validate working directory
-	if c.options.Cwd != nil {
-		if _, err := os.Stat(*c.options.Cwd); os.IsNotExist(err) {
-			return fmt.Errorf("working directory does not exist: %s", *c.options.Cwd)
+	if options.Cwd != nil {
+		if _, err := os.Stat(*options.Cwd); os.IsNotExist(err) {
+			return fmt.Errorf("working directory does not exist: %s", *options.Cwd)
 		}
 	}
 
+	if err := validateWindowsArgs(runtime.GOOS, options); err != nil {
+		return err
+	}
+
 	// Validate max turns
-	if c.options.MaxTurns < 0 {
-		return fmt.Errorf("max_turns must be non-negative, got: %d", c.options.MaxTurns)
+	if options.MaxTurns < 0 {
+		return fmt.Errorf("max_turns must be non-negative, got: %d", options.MaxTurns)
+	}
+
+	if err := shared.ValidateAgents(options.Agents); err != nil {
+		return err
 	}
 
 	// Validate permission mode
-	if c.options.PermissionMode != nil {
+	if options.PermissionMode != nil {
 		validModes := map[PermissionMode]bool{
 			PermissionModeDefault:           true,
 			PermissionModeAcceptEdits:       true,
 			PermissionModePlan:              true,
 			PermissionModeBypassPermissions: true,
 		}
-		if !validModes[*c.options.PermissionMode] {
-			return fmt.Errorf("invalid permission mode: %s", string(*c.options.PermissionMode))
+		if !validModes[*options.PermissionMode] {
+			return fmt.Errorf("invalid permission mode: %s", string(*options.PermissionMode))
 		}
 	}
 
 	return nil
 }
 
-// Connect establishes a connection to the Claude Code CLI.
-//
-// Connect 建立与 Claude Code CLI 的连接。
+// windowsCmdMetacharacters are the characters cmd.exe interprets (Python _CMD_EXE_METACHARACTERS).
+const windowsCmdMetacharacters = "&|<>^%!\"\r\n"
+
+// validateWindowsArgs checks each option that becomes a --flag=value argv token.
+func validateWindowsArgs(goos string, options *Options) error {
+	values := []struct {
+		name  string
+		value *string
+	}{
+		{"resume", options.Resume},
+		{"resume_session_at", options.ResumeSessionAt},
+		{"resume_drops_turn", options.ResumeDropsTurn},
+	}
+	for _, v := range values {
+		if v.value == nil {
+			continue
+		}
+		if err := validateWindowsArgValue(goos, v.name, *v.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateWindowsArgValue rejects cmd.exe metacharacters in an argv value on Windows.
+// Defense in depth: values such as resume often come from external input (Python #1123).
+func validateWindowsArgValue(goos, name, value string) error {
+	if goos != windowsOS {
+		return nil
+	}
+	var bad []string
+	for _, c := range windowsCmdMetacharacters {
+		if strings.ContainsRune(value, c) {
+			bad = append(bad, strconv.QuoteRune(c))
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s value %q contains characters that are unsafe to pass on a Windows command line: %s",
+		name, value, strings.Join(bad, " "))
+}
+
+// Connect establishes a connection to the Claude Code CLI. ctx bounds only
+// the connection setup (like net.Dialer.DialContext): once Connect returns,
+// the session lives until Disconnect, even after ctx is cancelled.
 func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	// Check context before acquiring lock
 	if ctx.Err() != nil {
@@ -264,7 +368,7 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	}
 
 	// Validate configuration before connecting
-	if err := c.prepareOptions(); err != nil {
+	if err := prepareOptions(c.options); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -278,8 +382,7 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 			return fmt.Errorf("claude CLI not found: %w", err)
 		}
 
-		// Create subprocess transport for streaming mode (closeStdin=false)
-		c.transport = subprocess.New(cliPath, c.options, false, "sdk-go-client")
+		c.transport = subprocess.New(cliPath, c.options, "sdk-go-client")
 	}
 
 	// Connect the transport
@@ -288,101 +391,63 @@ func (c *ClientImpl) Connect(ctx context.Context, _ ...StreamMessage) error {
 	}
 
 	// Get message channels
-	c.msgChan, c.errChan = c.transport.ReceiveMessages(ctx)
-	c.streamErrChan = make(chan error, 1)
-	transportMsgChan, transportErrChan := c.transport.ReceiveMessages(ctx)
-
-	c.errChan = transportErrChan
+	msgChan, errChan := c.transport.ReceiveMessages(ctx)
+	merged := make(chan Message, 100)
+	mergedErr := make(chan error, 1)
 	c.injectChan = make(chan Message, 100)
-	mergedChan := make(chan Message, 100)
-
-	mergeCtx, cancel := context.WithCancel(context.Background())
-	c.mergeCancel = cancel
+	mergeCtx, mergeCancel := context.WithCancel(context.Background())
+	c.mergeCancel = mergeCancel
 	c.mergeDone = make(chan struct{})
-	go mergeMessageChannels(mergeCtx, mergedChan, transportMsgChan, c.injectChan, c.mergeDone)
+	go mergeMessageChannels(mergeCtx, merged, mergedErr, newStreamReader(msgChan, errChan), c.injectChan, c.mergeDone)
+	c.msgChan = merged
+	c.stream = newStreamReader(merged, mergedErr)
+	c.streamErrChan = make(chan error, 1)
+	c.disconnected = make(chan struct{})
 
-	c.msgChan = mergedChan
+	watch := &connectionWatch{disconnected: c.disconnected}
+	if watcher, ok := c.transport.(processWatcher); ok {
+		watch.watcher = watcher
+	}
+	c.watchMu.Lock()
+	c.watch = watch
+	c.watchMu.Unlock()
 
 	c.connected = true
 	return nil
 }
 
 // Disconnect closes the connection to the Claude Code CLI.
-//
-// Disconnect 关闭与 Claude Code CLI 的连接。
 func (c *ClientImpl) Disconnect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Clear the watch before Close: during Close the transport's own state
+	// is torn down, so Err reports not-connected, never a transport error.
+	watch := c.swapWatch(nil)
 	if c.mergeCancel != nil {
 		c.mergeCancel()
 		c.mergeCancel = nil
 	}
-	// Do not close injectChan here. Skill handlers keep a snapshot of the
-	// channel while running and may still publish their final messages as
-	// Disconnect begins. Cancelling the merge goroutine is sufficient; the
-	// abandoned buffered channel is reclaimed after those senders finish.
-	if c.injectChan != nil {
-		c.injectChan = nil
-	}
-
 	if c.transport != nil && c.connected {
 		if err := c.transport.Close(); err != nil {
+			c.swapWatch(watch)
 			return fmt.Errorf("failed to close transport: %w", err)
 		}
 	}
+	if c.connected {
+		close(c.disconnected)
+	}
 	c.connected = false
 	c.transport = nil
 	c.msgChan = nil
-	c.errChan = nil
+	c.stream = nil
 	c.streamErrChan = nil
-	c.mergeDone = nil
-	return nil
-}
-
-// Abort immediately terminates the connection to the Claude Code CLI.
-// Custom transports can implement AbortableTransport for native force-stop
-// behavior. Legacy transports fall back to Close.
-//
-// Abort 立即终止与 Claude Code CLI 的连接。自定义 transport 可实现 AbortableTransport
-// 以获得原生强制停止行为；旧式 transport 则回退到 Close。
-func (c *ClientImpl) Abort() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.mergeCancel != nil {
-		c.mergeCancel()
-		c.mergeCancel = nil
-	}
-	if c.injectChan != nil {
-		c.injectChan = nil
-	}
-
-	var abortErr error
-	if c.transport != nil && c.connected {
-		if transport, ok := c.transport.(AbortableTransport); ok {
-			abortErr = transport.Abort()
-		} else {
-			abortErr = c.transport.Close()
-		}
-	}
-
-	c.connected = false
-	c.transport = nil
-	c.msgChan = nil
-	c.errChan = nil
-	c.streamErrChan = nil
-	c.mergeDone = nil
-	if abortErr != nil {
-		return fmt.Errorf("failed to abort transport: %w", abortErr)
-	}
+	c.injectChan = nil
 	return nil
 }
 
 // Query sends a simple text query using the default session.
 // This is equivalent to QueryWithSession(ctx, prompt, "default").
-//
-// Query 使用默认会话发送一条简单的文本查询，等价于 QueryWithSession(ctx, prompt, "default")。
 //
 // Example:
 //
@@ -394,9 +459,6 @@ func (c *ClientImpl) Query(ctx context.Context, prompt string) error {
 // QueryWithSession sends a simple text query using the specified session ID.
 // Each session maintains its own conversation context, allowing for isolated
 // conversations within the same client connection.
-//
-// QueryWithSession 使用指定的会话 ID 发送文本查询。每个会话维护自己的对话上下文，
-// 从而在同一客户端连接内实现相互隔离的多个对话。
 //
 // If sessionID is empty, it defaults to "default".
 //
@@ -414,75 +476,23 @@ func (c *ClientImpl) QueryWithSession(ctx context.Context, prompt string, sessio
 }
 
 // queryWithSession is the internal implementation for sending queries with session management.
-//
-// queryWithSession 是带会话管理的查询发送内部实现。
 func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessionID string) error {
 	// Check context before proceeding
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	// Check connection status with read lock
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
+	}
+	if c.dispatchSkill(ctx, prompt, sessionID) {
+		return nil
 	}
 
 	// Check context again after acquiring connection info
 	if ctx.Err() != nil {
 		return ctx.Err()
-	}
-
-	c.mu.RLock()
-	injectChan := c.injectChan
-	c.mu.RUnlock()
-
-	name, args, ok := parseSkillCommand(prompt)
-	if ok {
-		if handler, exists := getSkillHandler(c.options, name); exists {
-			go func() {
-				output, err := handler(ctx, args)
-
-				model := "sdk-skill"
-
-				if err != nil {
-					errText := err.Error()
-					enqueueInjectedMessage(ctx, injectChan, &AssistantMessage{
-						Content: []ContentBlock{&TextBlock{Text: errText}},
-						Model:   model,
-					})
-					enqueueInjectedMessage(ctx, injectChan, &ResultMessage{
-						Subtype:       "error",
-						DurationMs:    0,
-						DurationAPIMs: 0,
-						IsError:       true,
-						Errors:        []string{errText},
-						NumTurns:      0,
-						SessionID:     sessionID,
-						Result:        &errText,
-					})
-					return
-				}
-
-				enqueueInjectedMessage(ctx, injectChan, &AssistantMessage{
-					Content: []ContentBlock{&TextBlock{Text: output}},
-					Model:   model,
-				})
-				enqueueInjectedMessage(ctx, injectChan, &ResultMessage{
-					Subtype:       "success",
-					DurationMs:    0,
-					DurationAPIMs: 0,
-					IsError:       false,
-					NumTurns:      0,
-					SessionID:     sessionID,
-				})
-			}()
-			return nil
-		}
 	}
 
 	// Create user message in Python SDK compatible format
@@ -500,72 +510,16 @@ func (c *ClientImpl) queryWithSession(ctx context.Context, prompt string, sessio
 	return transport.SendMessage(ctx, streamMsg)
 }
 
-// mergeMessageChannels 将 transport 消息通道与注入消息通道合并到同一个输出通道；
-// 任一上游通道关闭后置 nil，直至两者均关闭或 ctx 取消时退出。
-func mergeMessageChannels(
-	ctx context.Context,
-	out chan<- Message,
-	transportMsgChan <-chan Message,
-	injectChan <-chan Message,
-	done chan<- struct{},
-) {
-	defer close(done)
-	defer close(out)
-
-	for transportMsgChan != nil || injectChan != nil {
-		select {
-		case msg, ok := <-transportMsgChan:
-			if !ok {
-				transportMsgChan = nil
-				continue
-			}
-			select {
-			case out <- msg:
-			case <-ctx.Done():
-				return
-			}
-		case msg, ok := <-injectChan:
-			if !ok {
-				injectChan = nil
-				continue
-			}
-			select {
-			case out <- msg:
-			case <-ctx.Done():
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// enqueueInjectedMessage 将一条注入消息发送到通道；通道为 nil 或 ctx 取消时返回 false。
-func enqueueInjectedMessage(ctx context.Context, ch chan<- Message, msg Message) bool {
-	if ch == nil {
-		return false
-	}
-	select {
-	case ch <- msg:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-// QueryStream sends a stream of messages.
-//
-// QueryStream 发送一个消息流（在后台 goroutine 中依次发送）。
+// QueryStream sends a stream of messages. It returns an error when the client
+// cannot write (see Err); a later send error is returned by ReceiveResponse.
 func (c *ClientImpl) QueryStream(ctx context.Context, messages <-chan StreamMessage) error {
-	// Check connection status with read lock
 	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
+	transport, err := c.liveTransportLocked()
 	streamErrChan := c.streamErrChan
 	c.mu.RUnlock()
 
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	if err != nil {
+		return err
 	}
 
 	// Send messages from channel in a goroutine
@@ -577,10 +531,11 @@ func (c *ClientImpl) QueryStream(ctx context.Context, messages <-chan StreamMess
 					return // Channel closed
 				}
 				if err := transport.SendMessage(ctx, msg); err != nil {
-					fmt.Fprintf(os.Stderr, "claude-agent-sdk: QueryStream send error: %v\n", err)
+					// ReceiveResponse returns this error; log only if it is dropped.
 					select {
 					case streamErrChan <- fmt.Errorf("stream send error: %w", err):
 					default:
+						fmt.Fprintf(os.Stderr, "claude-agent-sdk: QueryStream send error dropped: %v\n", err)
 					}
 					return
 				}
@@ -594,8 +549,6 @@ func (c *ClientImpl) QueryStream(ctx context.Context, messages <-chan StreamMess
 }
 
 // ReceiveMessages returns a channel of incoming messages.
-//
-// ReceiveMessages 返回一个接收入站消息的通道；未连接时返回一个已关闭的通道。
 func (c *ClientImpl) ReceiveMessages(_ context.Context) <-chan Message {
 	// Check connection status with read lock
 	c.mu.RLock()
@@ -614,48 +567,41 @@ func (c *ClientImpl) ReceiveMessages(_ context.Context) <-chan Message {
 	return msgChan
 }
 
-// ReceiveResponse returns an iterator for the response messages.
-//
-// ReceiveResponse 返回用于遍历响应消息的迭代器；未连接时返回包裹已关闭通道的迭代器（非 nil）。
+// ReceiveResponse returns an iterator for the messages of the current turn.
+// The iterator returns the ResultMessage, then ErrNoMoreMessages on the next call.
+// Call it again after the next Query to read that turn.
 func (c *ClientImpl) ReceiveResponse(_ context.Context) MessageIterator {
 	// Check connection status with read lock
 	c.mu.RLock()
 	connected := c.connected
 	msgChan := c.msgChan
-	errChan := c.errChan
+	stream := c.stream
 	streamErrChan := c.streamErrChan
 	c.mu.RUnlock()
 
 	if !connected || msgChan == nil {
 		closed := make(chan Message)
 		close(closed)
-		return &clientIterator{msgChan: closed, errChan: make(chan error)}
+		return &clientIterator{stream: newStreamReader(closed, make(chan error))}
 	}
 
 	return &clientIterator{
-		msgChan:       msgChan,
-		errChan:       errChan,
+		stream:        stream,
 		streamErrChan: streamErrChan,
 	}
 }
 
-// Interrupt sends an interrupt signal to stop the current operation.
-//
-// Interrupt 发送中断信号以停止当前操作。
+// Interrupt asks the CLI to stop the current turn. It sends an interrupt
+// control request; the CLI stays connected for the next query.
 func (c *ClientImpl) Interrupt(ctx context.Context) error {
 	// Check context before proceeding
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	// Check connection status with read lock
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
 	}
 
 	return transport.Interrupt(ctx)
@@ -664,9 +610,6 @@ func (c *ClientImpl) Interrupt(ctx context.Context) error {
 // SetModel changes the AI model during a streaming session.
 // Pass nil to reset to the default model.
 // Returns error if not connected or if the control request fails.
-//
-// SetModel 在流式会话期间切换 AI 模型；传 nil 则重置为默认模型。
-// 未连接或控制请求失败时返回错误。
 //
 // Example - Change to a specific model:
 //
@@ -682,14 +625,9 @@ func (c *ClientImpl) SetModel(ctx context.Context, model *string) error {
 		return ctx.Err()
 	}
 
-	// Check connection status with read lock (minimize lock duration)
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
 	}
 
 	return transport.SetModel(ctx, model)
@@ -699,10 +637,6 @@ func (c *ClientImpl) SetModel(ctx context.Context, model *string) error {
 // Valid modes: PermissionModeDefault, PermissionModeAcceptEdits,
 // PermissionModePlan, PermissionModeBypassPermissions.
 // Returns error if not connected or if the control request fails.
-//
-// SetPermissionMode 在流式会话期间切换权限模式。
-// 有效模式：PermissionModeDefault、PermissionModeAcceptEdits、
-// PermissionModePlan、PermissionModeBypassPermissions。未连接或控制请求失败时返回错误。
 //
 // Example - Enable auto-accept for edits:
 //
@@ -717,14 +651,9 @@ func (c *ClientImpl) SetPermissionMode(ctx context.Context, mode PermissionMode)
 		return ctx.Err()
 	}
 
-	// Check connection status with read lock (minimize lock duration)
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
 	}
 
 	return transport.SetPermissionMode(ctx, mode)
@@ -734,10 +663,6 @@ func (c *ClientImpl) SetPermissionMode(ctx context.Context, mode PermissionMode)
 // The messageUUID should be the UUID from a UserMessage received during the session.
 // Requires file checkpointing to be enabled via WithFileCheckpointing() option.
 // Returns error if not connected or the request fails.
-//
-// RewindFiles 将被跟踪的文件回滚到某条用户消息时的状态。
-// messageUUID 应为会话期间收到的 UserMessage 的 UUID，
-// 需通过 WithFileCheckpointing() 选项启用文件检查点。未连接或请求失败时返回错误。
 //
 // Example:
 //
@@ -752,14 +677,9 @@ func (c *ClientImpl) RewindFiles(ctx context.Context, messageUUID string) error 
 		return ctx.Err()
 	}
 
-	// Check connection status with read lock (minimize lock duration)
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
 	}
 
 	return transport.RewindFiles(ctx, messageUUID)
@@ -767,52 +687,145 @@ func (c *ClientImpl) RewindFiles(ctx context.Context, messageUUID string) error 
 
 // GetMcpStatus returns the connection status of all configured MCP servers.
 // Returns error if not connected or if the control request fails.
-//
-// GetMcpStatus 返回所有已配置 MCP 服务器的连接状态。未连接或控制请求失败时返回错误。
 func (c *ClientImpl) GetMcpStatus(ctx context.Context) (*McpStatusResponse, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return nil, fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return nil, err
 	}
 
 	return transport.GetMcpStatus(ctx)
 }
 
-// GetSlashCommands returns slash commands available in the current session.
+// Done returns a channel that is closed when the connected CLI process exits.
+func (c *ClientImpl) Done() <-chan struct{} {
+	watch := c.currentWatch()
+	if watch == nil {
+		return closedDone
+	}
+	if watch.watcher != nil {
+		return watch.watcher.Done()
+	}
+	return watch.disconnected
+}
+
+// Err returns nil while the connected CLI process runs, and why it stopped
+// once Done is closed.
+func (c *ClientImpl) Err() error {
+	watch := c.currentWatch()
+	if watch == nil {
+		return notConnectedError()
+	}
+	if watch.watcher != nil {
+		return watch.watcher.Err()
+	}
+	return nil
+}
+
+func (c *ClientImpl) currentWatch() *connectionWatch {
+	c.watchMu.Lock()
+	defer c.watchMu.Unlock()
+	return c.watch
+}
+
+// swapWatch sets the watch and returns the old one.
+func (c *ClientImpl) swapWatch(watch *connectionWatch) *connectionWatch {
+	c.watchMu.Lock()
+	defer c.watchMu.Unlock()
+	old := c.watch
+	c.watch = watch
+	return old
+}
+
+// liveTransport returns the transport of a connected client whose CLI
+// process is still running.
+func (c *ClientImpl) liveTransport() (Transport, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.liveTransportLocked()
+}
+
+// liveTransportLocked is liveTransport for callers that hold c.mu.
+func (c *ClientImpl) liveTransportLocked() (Transport, error) {
+	if !c.connected || c.transport == nil {
+		return nil, notConnectedError()
+	}
+	if watcher, ok := c.transport.(processWatcher); ok {
+		if err := watcher.Err(); err != nil {
+			// Python raises CLIConnectionError from the exit error.
+			return nil, NewConnectionError("cannot write to terminated CLI process", err)
+		}
+	}
+	return c.transport, nil
+}
+
+// StopTask stops a single running task, such as one subagent, by the task ID
+// from its TaskStartedMessage. The rest of the session keeps running.
 // Returns error if not connected or if the control request fails.
 //
-// GetSlashCommands 返回当前会话中可用的斜杠命令。未连接或控制请求失败时返回错误。
-func (c *ClientImpl) GetSlashCommands(ctx context.Context) ([]SlashCommand, error) {
+// The CLI then reports the task's end as a TaskUpdatedMessage whose status is
+// terminal (killed). A TaskNotificationMessage with status stopped may follow,
+// but the CLI sometimes omits it, so clear the task on a terminal status from
+// either message (see IsTerminalTaskStatus).
+//
+// Example:
+//
+//	if sys, ok := msg.(*claudecode.SystemMessage); ok {
+//	    if started, ok := sys.AsTaskStarted(); ok {
+//	        err := client.StopTask(ctx, started.TaskID)
+//	    }
+//	}
+func (c *ClientImpl) StopTask(ctx context.Context, taskID string) error {
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return ctx.Err()
 	}
 
-	c.mu.RLock()
-	connected := c.connected
-	transport := c.transport
-	c.mu.RUnlock()
-
-	if !connected || transport == nil {
-		return nil, fmt.Errorf("client not connected")
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
 	}
 
-	return transport.GetSlashCommands(ctx)
+	return transport.StopTask(ctx, taskID)
+}
+
+// ReconnectMcpServer reconnects a disconnected or failed MCP server.
+// Returns error if not connected or if the CLI rejects the request, for
+// example for an unknown server name.
+func (c *ClientImpl) ReconnectMcpServer(ctx context.Context, serverName string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
+	}
+
+	return transport.ReconnectMcpServer(ctx, serverName)
+}
+
+// ToggleMcpServer enables or disables an MCP server.
+// Returns error if not connected or if the CLI rejects the request, for
+// example for an unknown server name.
+func (c *ClientImpl) ToggleMcpServer(ctx context.Context, serverName string, enabled bool) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	transport, err := c.liveTransport()
+	if err != nil {
+		return err
+	}
+
+	return transport.ToggleMcpServer(ctx, serverName, enabled)
 }
 
 // clientIterator implements MessageIterator for client message reception
-//
-// clientIterator 实现 MessageIterator，用于客户端消息接收。
 type clientIterator struct {
-	msgChan       <-chan Message
-	errChan       <-chan error
+	stream        *streamReader
 	streamErrChan <-chan error
 	mu            sync.Mutex
 	closed        bool
@@ -826,61 +839,22 @@ func (ci *clientIterator) Next(ctx context.Context) (Message, error) {
 	}
 	ci.mu.Unlock()
 
-	select {
-	case msg, ok := <-ci.msgChan:
-		if !ok {
-			select {
-			case err, ok := <-ci.errChan:
-				if ok && err != nil {
-					ci.mu.Lock()
-					ci.closed = true
-					ci.mu.Unlock()
-					return nil, err
-				}
-			case err, ok := <-ci.streamErrChan:
-				if ok && err != nil {
-					ci.mu.Lock()
-					ci.closed = true
-					ci.mu.Unlock()
-					return nil, err
-				}
-			default:
-			}
-
-			ci.mu.Lock()
-			ci.closed = true
-			ci.mu.Unlock()
-			return nil, ErrNoMoreMessages
-		}
-		return msg, nil
-	case err, ok := <-ci.errChan:
-		if !ok {
-			ci.mu.Lock()
-			ci.closed = true
-			ci.mu.Unlock()
-			return nil, ErrNoMoreMessages
-		}
-		ci.mu.Lock()
-		ci.closed = true
-		ci.mu.Unlock()
+	msg, err := ci.stream.next(ctx, ci.streamErrChan)
+	if err != nil {
+		ci.markClosed()
 		return nil, err
-	case err, ok := <-ci.streamErrChan:
-		if !ok {
-			ci.mu.Lock()
-			ci.closed = true
-			ci.mu.Unlock()
-			return nil, ErrNoMoreMessages
-		}
-		ci.mu.Lock()
-		ci.closed = true
-		ci.mu.Unlock()
-		return nil, err
-	case <-ctx.Done():
-		ci.mu.Lock()
-		ci.closed = true
-		ci.mu.Unlock()
-		return nil, ctx.Err()
 	}
+	// The turn ends at its ResultMessage (Python receive_response); the channel stays open for the next turn.
+	if _, isResult := msg.(*ResultMessage); isResult {
+		ci.markClosed()
+	}
+	return msg, nil
+}
+
+func (ci *clientIterator) markClosed() {
+	ci.mu.Lock()
+	ci.closed = true
+	ci.mu.Unlock()
 }
 
 func (ci *clientIterator) Close() error {
@@ -892,8 +866,6 @@ func (ci *clientIterator) Close() error {
 
 // GetStreamIssues returns validation issues found in the message stream.
 // This can help diagnose problems like missing tool results or incomplete streams.
-//
-// GetStreamIssues 返回消息流中发现的校验问题，可用于诊断如工具结果缺失或流不完整等问题。
 func (c *ClientImpl) GetStreamIssues() []StreamIssue {
 	c.mu.RLock()
 	transport := c.transport
@@ -913,8 +885,6 @@ func (c *ClientImpl) GetStreamIssues() []StreamIssue {
 
 // GetStreamStats returns statistics about the message stream.
 // This includes counts of tools requested/received and pending tools.
-//
-// GetStreamStats 返回消息流的统计信息，包括已请求/已接收的工具数以及待处理工具数。
 func (c *ClientImpl) GetStreamStats() StreamStats {
 	c.mu.RLock()
 	transport := c.transport
@@ -932,18 +902,19 @@ func (c *ClientImpl) GetStreamStats() StreamStats {
 	return validator.GetStats()
 }
 
-// GetServerInfo returns diagnostic information about the client and its connection.
-// This provides useful information for debugging, health checks, and support scenarios.
-//
-// GetServerInfo 返回关于客户端及其连接的诊断信息，便于调试、健康检查与技术支持。
+// serverInfoSource is implemented by transports that keep the initialize
+// response the CLI sent during Connect.
+type serverInfoSource interface {
+	InitializationResult() map[string]interface{}
+}
+
+// GetServerInfo returns the initialize response the CLI sent during Connect,
+// as decoded JSON: its commands, output styles, models, account and other
+// capabilities (Python: get_server_info). Each call returns a copy. It returns
+// nil when the transport does not keep the response, and an error when the
+// client is not connected.
 //
 // This method is thread-safe and can be called concurrently from multiple goroutines.
-//
-// Returns a map containing:
-//   - "connected": bool - Whether the client is currently connected
-//   - "transport_type": string - The type of transport being used (e.g., "subprocess")
-//
-// Returns an error if the client is not connected.
 //
 // Example:
 //
@@ -952,20 +923,25 @@ func (c *ClientImpl) GetStreamStats() StreamStats {
 //	    log.Printf("Client not connected: %v", err)
 //	    return
 //	}
-//	fmt.Printf("Connected: %v, Transport: %s\n",
-//	    info["connected"], info["transport_type"])
+//	if models, ok := info["models"].([]interface{}); ok {
+//	    fmt.Printf("Models available: %d\n", len(models))
+//	}
 func (c *ClientImpl) GetServerInfo(_ context.Context) (map[string]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if !c.connected || c.transport == nil {
-		return nil, fmt.Errorf("client not connected")
+		return nil, notConnectedError()
 	}
 
-	info := map[string]interface{}{
-		"connected":      true,
-		"transport_type": "subprocess",
+	if source, ok := c.transport.(serverInfoSource); ok {
+		info := source.InitializationResult()
+		if info == nil {
+			info = make(map[string]any)
+		}
+		info["connected"] = true
+		info["transport_type"] = "subprocess"
+		return info, nil
 	}
-
-	return info, nil
+	return map[string]any{"connected": true, "transport_type": "subprocess"}, nil
 }
